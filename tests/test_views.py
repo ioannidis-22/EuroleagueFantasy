@@ -1,3 +1,5 @@
+from statistics import mean
+
 import pandas as pd
 
 from elfantasy.dvp import dvp, possessions
@@ -74,3 +76,20 @@ def test_matchup_table_without_dvp_row():
 def test_history_vs_teams():
     h = history_vs_teams(mini_log(), "p1").set_index("opp_tv")
     assert h.loc["AAA", "games"] == 1 and h.loc["AAA", "pir_avg"] == 20 and h.loc["BBB", "pir_avg"] == 10
+
+
+from elfantasy.views import conceded_trend  # noqa: E402
+
+
+def test_conceded_trend_rolling_by_position():
+    rows = []
+    for g in range(1, 7):
+        for pos, pir in (("Guard", 10 * g), ("Center", 5)):
+            r = {c: 0 for c in BOX_COMPONENTS}
+            r.update(player_code=f"{pos}{g}", opp_tv="AAA", position=pos, pir=pir, minutes=30, dnp=0,
+                     season="E2026", game_code=g, round=g, local_date=f"2026-10-{g:02d}")
+            rows.append(r)
+    tr = conceded_trend(pd.DataFrame(rows), "AAA", window=5)
+    gd = tr[tr.position == "Guard"].set_index("round")["rolling_pir"]
+    assert gd.loc[1] == 10 and gd.loc[6] == mean([20, 30, 40, 50, 60])
+    assert (tr[tr.position == "Center"]["rolling_pir"] == 5).all()

@@ -66,3 +66,17 @@ def history_vs_teams(log: pd.DataFrame, player_code: str) -> pd.DataFrame:
     return (p.groupby("opp_tv").agg(games=("pir", "size"), pir_avg=("pir", "mean"),
                                     min_avg=("minutes", "mean"), last=("local_date", "max"))
             .reset_index().sort_values(["games", "pir_avg"], ascending=False))
+
+
+def conceded_trend(log: pd.DataFrame, def_tv: str, window: int = 5) -> pd.DataFrame:
+    """PIR conceded per game to each position by one team, with a rolling mean over its games."""
+    p = log[(log["opp_tv"] == def_tv) & (log["dnp"] == 0) & log["position"].notna()]
+    games = p[["season", "game_code", "round", "local_date"]].drop_duplicates().sort_values("local_date")
+    per = p.groupby(["season", "game_code", "position"])["pir"].sum().unstack(fill_value=0)
+    per = games.merge(per.reset_index(), on=["season", "game_code"], how="left").fillna(0)
+    long = per.melt(id_vars=["season", "game_code", "round", "local_date"], var_name="position",
+                    value_name="pir")
+    long = long.sort_values("local_date")
+    long["rolling_pir"] = long.groupby("position")["pir"].transform(
+        lambda x: x.rolling(window, min_periods=1).mean())
+    return long.reset_index(drop=True)

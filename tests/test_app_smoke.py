@@ -5,7 +5,8 @@ from pathlib import Path
 
 APP = Path(__file__).resolve().parents[1] / "app"
 PAGES = [str(APP / "Home.py"), str(APP / "pages" / "1_Players.py"), str(APP / "pages" / "2_Player.py"),
-         str(APP / "pages" / "3_Compare.py"), str(APP / "pages" / "5_Data.py")]
+         str(APP / "pages" / "3_Compare.py"), str(APP / "pages" / "4_Opponents.py"),
+         str(APP / "pages" / "5_Data.py")]
 
 
 def test_player_page_with_selection(fixture_data_dir):
