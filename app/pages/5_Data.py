@@ -54,14 +54,14 @@ if up is not None and st.button("Import", type="primary"):
 
 # ---------- refresh ----------
 st.header("2 · Refresh games")
-st.caption("Downloads fixtures and new box scores. The first run fetches three past seasons too "
-           "(several minutes). The official box-score server rate-limits; the app waits when told to.")
+st.caption("Downloads this season's fixtures and new box scores. The official box-score server "
+           "rate-limits bursts; the app waits when told to, so this can pause for a few minutes.")
 if st.button("Refresh games"):
     client = ELClient(paths.cache_dir(), delay_s=s.api_delay_s)
     reports = []
-    for season in [*s.history_seasons, s.season]:
+    for season in [s.season]:
         bar = st.progress(0.0, text=f"{season}…")
-        rep = refresh_season(conn, client, season, source="live" if season == s.season else "v3",
+        rep = refresh_season(conn, client, season, source="live",
                              progress=lambda i, n, b=bar, se=season: b.progress(i / n, text=f"{se}: {i}/{n}"))
         bar.progress(1.0, text=f"{season}: done")
         reports.append(rep)

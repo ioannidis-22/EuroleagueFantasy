@@ -107,8 +107,6 @@ if pd.notna(p.opp):
         st.markdown("**Gives up most:** " + ", ".join(f"{k} {v:+.0%}" for k, v in hi)
                     + "  \n**Gives up least:** " + ", ".join(f"{k} {v:+.0%}" for k, v in lo))
 
-st.subheader("History vs teams")
-logs = [ud.load_log(ud.db(), se) for se in (*s.history_seasons, s.season)]
-allg = pd.concat([x for x in logs if len(x)], ignore_index=True) if any(len(x) for x in logs) else log
-h = history_vs_teams(allg, p.player_code)
+st.subheader("This season vs each team")
+h = history_vs_teams(log, p.player_code)
 st.dataframe(h.style.format({"pir_avg": "{:.1f}", "min_avg": "{:.1f}"}), hide_index=True)

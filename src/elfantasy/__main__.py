@@ -16,8 +16,7 @@ from .store import connect
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="elfantasy")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    r = sub.add_parser("refresh", help="download fixtures and new box scores")
-    r.add_argument("--seasons", nargs="*")
+    sub.add_parser("refresh", help="download this season's fixtures and new box scores")
     i = sub.add_parser("import", help="import a fantasy export (.xlsx)")
     i.add_argument("xlsx", type=Path)
     a = ap.parse_args(argv)
@@ -33,11 +32,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Imported matchday {md}")
         return 0
 
-    seasons = a.seasons or [*s.history_seasons, s.season]
     client = ELClient(cache_dir(), delay_s=s.api_delay_s)
     status = 0
-    for season in seasons:
-        rep = refresh_season(conn, client, season, source="live" if season == s.season else "v3",
+    for season in [s.season]:
+        rep = refresh_season(conn, client, season, source="live",
                              progress=lambda k, n: print(f"\r{season}: {k}/{n}", end="", flush=True))
         print(f"\n{season}: {rep.games_total} games, {rep.new_box_scores} new box scores, "
               f"{len(rep.failed)} failed")

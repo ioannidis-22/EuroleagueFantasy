@@ -13,8 +13,8 @@ Requires Python 3.12+. Keep the folder on a short path (for example `C:\elfantas
 
 1. Double-click `setup.bat`. It creates `.venv` and installs everything.
 2. Double-click `run_app.bat`. The app opens in your browser.
-3. On the **Data** page, click **Refresh games**. The first run downloads three past seasons
-   plus this one (a few minutes).
+3. On the **Data** page, click **Refresh games**. It downloads this season's fixtures and box
+   scores (a few minutes the first time).
 
 ## Every round
 
@@ -32,9 +32,9 @@ From a terminal, `.venv\Scripts\python -m elfantasy refresh` and
 |---|---|
 | Round dashboard | Next round by T-slot, data freshness and alerts, in/out of form, value, price risers/fallers, most reliable |
 | Players | Filterable, sortable table of every player; CSV export |
-| Player | Game log, minutes, PIR breakdown, floor/ceiling, price history, next matchup, history vs teams |
+| Player | Game log, minutes, PIR breakdown, floor/ceiling, price history, next matchup, this season vs each team |
 | Compare | 2–4 players side by side |
-| Opponents | Defense vs Position heatmap, team detail, fixture difficulty for the next rounds, past seasons |
+| Opponents | Defense vs Position heatmap, team detail, fixture difficulty for the next rounds |
 | Data | Import, refresh, unmatched players and manual links, settings |
 
 ## Where data lives
@@ -45,10 +45,8 @@ Everything is in `data/` (not in git): `elfantasy.db` (SQLite), `cache/` (downlo
 
 ## Data sources and limits
 
-- Current season box scores come from the official live box-score service, which rate-limits
-  bursts. The app waits when told to, so a refresh can pause for a few minutes.
-- Past seasons come from the Euroleague v3 stats service. It has no DNP rows, so DNP rate uses the
-  current season only.
+- Only the current season is used. Box scores come from the official live box-score service,
+  which rate-limits bursts. The app waits when told to, so a refresh can pause for a few minutes.
 - The fantasy game's win bonus is estimated from your data (Data → Settings shows it). You can
   set it by hand.
 - Players with no games this season, usually injured or departed, show as unmatched. That's expected.

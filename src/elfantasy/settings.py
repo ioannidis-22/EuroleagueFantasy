@@ -9,7 +9,6 @@ from pathlib import Path
 @dataclass
 class Settings:
     season: str = "E2026"
-    history_seasons: tuple[str, ...] = ("E2023", "E2024", "E2025")
     boom: float = 20.0
     bust: float = 5.0
     form_threshold: float = 2.0
@@ -25,8 +24,6 @@ def load_settings(path: Path) -> Settings:
     raw = json.loads(path.read_text(encoding="utf-8"))
     known = {f.name for f in fields(Settings)}
     kwargs = {k: v for k, v in raw.items() if k in known}
-    if "history_seasons" in kwargs:
-        kwargs["history_seasons"] = tuple(kwargs["history_seasons"])
     return Settings(**kwargs)
 
 

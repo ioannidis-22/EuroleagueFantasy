@@ -35,3 +35,8 @@ def test_page_runs_on_empty_data_dir(tmp_path, monkeypatch):
     for page in PAGES:
         at = AppTest.from_file(page, default_timeout=60).run()
         assert not at.exception, (page, at.exception)
+
+
+def test_opponents_has_no_previous_seasons_tab(fixture_data_dir):
+    at = AppTest.from_file(str(APP / "pages" / "4_Opponents.py"), default_timeout=60).run()
+    assert [t.label for t in at.tabs] == ["Heatmap", "Team", "Fixture difficulty"]

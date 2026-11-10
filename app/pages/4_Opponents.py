@@ -49,7 +49,7 @@ def heatmap(tab: pd.DataFrame, metric: str, show: str, key: str) -> None:
                "average to that position; blue = gives up less.")
 
 
-tab_heat, tab_team, tab_fix, tab_hist = st.tabs(["Heatmap", "Team", "Fixture difficulty", "Previous seasons"])
+tab_heat, tab_team, tab_fix = st.tabs(["Heatmap", "Team", "Fixture difficulty"])
 
 with tab_heat:
     c = st.columns(5)
@@ -111,9 +111,3 @@ with tab_fix:
             st.caption(f"Each cell: opponent, T-slot, and how much PIR that opponent concedes to {pos}s vs "
                        "the league (red = easier matchup). Teams sorted easiest run first.")
 
-with tab_hist:
-    season = st.selectbox("Season", list(s.history_seasons)[::-1])
-    c = st.columns(2)
-    metric_h = c[0].selectbox("Stat", list(METRICS), format_func=METRICS.get, key="hist_metric")
-    show_h = c[1].radio("Show", ["Index vs league", "Raw value"], key="hist_show")
-    heatmap(table(season), metric_h, show_h, "heat_hist")

@@ -38,13 +38,13 @@ def load_log(db_path: str, season: str) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def load_summary(db_path: str, season: str, settings_dict: dict) -> pd.DataFrame:
-    s = Settings(**{**settings_dict, "history_seasons": tuple(settings_dict["history_seasons"])})
+    s = Settings(**settings_dict)
     return player_summary(load_log(db_path, season), s)
 
 
 @st.cache_data(show_spinner=False)
 def load_win_bonus(db_path: str, settings_dict: dict) -> float:
-    s = Settings(**{**settings_dict, "history_seasons": tuple(settings_dict["history_seasons"])})
+    s = Settings(**settings_dict)
     return effective_win_bonus(get_conn(db_path), s)
 
 
@@ -79,7 +79,7 @@ def clear_caches() -> None:
 @st.cache_data(show_spinner=False)
 def load_player_table(db_path: str, season: str, matchday: int, settings_dict: dict) -> pd.DataFrame:
     from .views import player_table as build
-    s = Settings(**{**settings_dict, "history_seasons": tuple(settings_dict["history_seasons"])})
+    s = Settings(**settings_dict)
     wb = load_win_bonus(db_path, settings_dict)
     tab = load_dvp(db_path, season, "season", "all", "per40", wb, s.dvp_shrink_minutes)
     return build(get_conn(db_path), season, matchday, load_summary(db_path, season, settings_dict), tab)

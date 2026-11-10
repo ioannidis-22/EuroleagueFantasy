@@ -24,7 +24,8 @@ Status: Draft for review
 | All four decisions: buy/sell, value, projections, captain/consistency | — |
 | Fantasy export `players_stats.xlsx` downloadable every round | Its column layout stays stable between rounds (validated on import) |
 | Python + Streamlit | — |
-| Complex projection: stat-by-stat, ML, outcome ranges, game situation | Euroleague public API provides box scores for this and the previous 3 seasons |
+| Complex projection: stat-by-stat, ML, outcome ranges, game situation | Euroleague public API provides box scores for the current season |
+| Past seasons not wanted (decided 2026-11-10): current season only, everywhere | Early-season projections rely on shrinkage toward role/position averages instead of player history |
 | Very analytical opponent stats / PIR vs team by position | Positions = the fantasy game's Guard/Forward/Center |
 | T1/T2/T3 = game day within a round; subs/captain moves allowed only to players who haven't played yet | T-slots are numbered by distinct game dates within a matchday |
 
@@ -43,7 +44,7 @@ Columns: `ID, Name, Surname, Active, Position, Team, FPT, Quotation, Plus, Pts, 
 ### 2.2 Euroleague public API
 Used for: season fixtures (round, date/time, home/away, final status), per-game box scores (per player: minutes, starter flag, points, 2P/3P/FT made/attempted, OREB/DREB, AST, STL, TOV, BLK, blocks against, fouls committed/drawn, official PIR), team totals (for pace), and player positions for players absent from the fantasy file.
 
-Seasons: current (`E2026`) and the previous three (`E2023`–`E2025`) for priors and ML training.
+Season: current (`E2026`) only. Past seasons are not downloaded or used (user decision, 2026-11-10).
 
 The exact endpoints (api-live.euroleague.net v1/v2/v3, or the `euroleague-api` Python package wrapping them) are confirmed in a **first implementation task (spike)**. The client module hides the choice from the rest of the app.
 
@@ -106,14 +107,14 @@ Regress `snapshot FPT avg − PIR avg (from game logs over the same matchdays)` 
 
 ## 5. Defense vs Position (DvP)
 
-Positions: fantasy Guard / Forward / Center. Players not in the current export: position from the EL API, mapped (PG/SG/G→Guard, SF/PF/F→Forward, C→Center; hybrids by first listed).
+Positions: fantasy Guard / Forward / Center. Players not in the current export: position from the EL API roster (already Guard / Forward / Center).
 
 For each team × position, aggregate opposing players' production in games vs that team:
 - PIR and FPT-equivalent conceded; every component (PTS, OREB, DREB, AST, STL, BLK, FD, TOV, BLKA, PF, FG missed, FT missed); 2P/3P/FT made, attempted, %.
 - Three normalisations: per game, per 40 player-minutes, per 100 possessions (possessions ≈ FGA + 0.44·FTA − OREB + TOV, averaged for both teams).
 - Index vs league average (%), rank 1–20. Empirical-Bayes shrinkage toward the league average weighted by minutes sample.
 - "How they concede": components with largest positive/negative index.
-- Splits: season, last 5 games, home/away, starters/bench, previous seasons.
+- Splits: season, last 5 games, home/away, starters/bench.
 
 Views: heatmap (teams × positions, metric and window selectable), team page with trends, fixture difficulty grid (next 3–5 matchdays per position), player matchup view (player component strengths × next opponent's component indices + the player's history vs that team).
 
@@ -138,7 +139,7 @@ Projections are per player per upcoming matchday. Four layers.
 
 ### Layer 2 — Stat-by-stat per-minute rates
 For each component c (2PA, 2P%, 3PA, 3P%, FTA, FT%, OREB, DREB, AST, STL, BLK, FD, TOV, BLKA, PF):
-- Player rate: exponentially weighted current-season rate, shrunk toward a prior built from the player's previous seasons and his position/role average (weight grows with minutes played).
+- Player rate: exponentially weighted current-season rate, shrunk toward his position/role average (weight grows with minutes played).
 - × opponent DvP index for c at his position (shrunk, from §5).
 - × pace factor (expected possessions / league average).
 - × home/away factor for c (league-wide, fitted).
@@ -152,7 +153,7 @@ Outputs: mean, median, P20, P80, P(≥20), P(≥30), P(DNP). Coaches from the sa
 
 ### Layer 4 — ML challenger
 - Gradient boosting (scikit-learn `HistGradientBoostingRegressor`) predicting FPT; quantile models for P20/P80.
-- Training rows: player-games from E2023–current, features computed strictly from data before each game.
+- Training rows: current-season player-games only, features computed strictly from data before each game. With few rounds played the ML model may not beat the simulation; the backtest-chosen blend weight handles that.
 - Features: rolling form (3/5/10), EW minutes, starter rate, rest days, home/away, opponent DvP indices per component, pace, teammates-out minutes share, expected margin, Layer 1–3 outputs.
 - Final projection = w·sim + (1−w)·ML, w chosen per backtest; both shown.
 
@@ -172,7 +173,7 @@ User enters their squad on the Squad page: players + coach, starters, captain. S
 
 1. **Round dashboard** — next matchday, data freshness, top projections, value picks, captain shortlist, risers/fallers, alerts (unmatched players, stale data, outs not set).
 2. **Player explorer** — filter (position, team, price, T), sortable columns (price, FPT, proj, P20/P80, value, form, minutes trend, next opponent DvP rank, T), CSV export.
-3. **Player profile** — PIR/minutes game log with rolling averages, projection distribution, PIR breakdown, price history, matchup view, history vs teams.
+3. **Player profile** — PIR/minutes game log with rolling averages, projection distribution, PIR breakdown, price history, matchup view, this season vs each team.
 4. **Compare** — 2–4 players, overlaid projection distributions.
 5. **Captain picker** — ranked by expected FPT with safe↔upside slider (P20 vs P(≥30) weighting).
 6. **Squad** — roster entry, T coverage, captain-swap and sub simulations, what-if transfers.
