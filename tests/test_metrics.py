@@ -65,7 +65,7 @@ def test_value_table_and_price_history(fixture_conn):
     assert list(h["matchday"]) == [11] and h["price"].iloc[0] == 18.9
 
 
-def seed_players_with_gap(conn, n, bonus, reference=None, played_rounds=range(1, 11)):
+def seed_players_with_gap(conn, n, bonus, reference=None, played_rounds=range(1, 11), postponed=False):
     """Half the players on club A (wins 7 of 10), half on B (wins 3). fpt = mean pir + bonus*share."""
     reference = reference or list(played_rounds)
     rounds = list(range(1, max(reference) + 1))
@@ -80,7 +80,8 @@ def seed_players_with_gap(conn, n, bonus, reference=None, played_rounds=range(1,
                       "played": played})
     for i in range(n):
         club = "A" if i % 2 == 0 else "B"
-        share = (7 if club == "A" else 3) / len(played_rounds)
+        a_wins = sum(1 for r in played_rounds if r <= 7) / len(played_rounds)
+        share = a_wins if club == "A" else 1 - a_wins
         pir = 10 + i
         for r in played_rounds:
             row = {c: 0 for c in BOX_COMPONENTS}
@@ -91,6 +92,10 @@ def seed_players_with_gap(conn, n, bonus, reference=None, played_rounds=range(1,
                     "position": "Guard", "team": "AAA" if club == "A" else "BBB", "price": 10.0,
                     "fpt": pir + bonus * share})
         pmap.append({"fantasy_id": str(i), "player_code": f"{i:06d}", "method": "name"})
+    if postponed:   # one extra unplayed game in every round (other clubs)
+        games += [{"season": "E2026", "game_code": 100 + r, "round": r, "phase": "RS",
+                   "local_date": f"2026-10-{r:02d}T20:00:00", "home_club": "C", "away_club": "D",
+                   "home_score": 0, "away_score": 0, "played": 0} for r in rounds]
     upsert_rows(conn, "games", pd.DataFrame(games))
     upsert_rows(conn, "box_player", pd.DataFrame(box))
     upsert_rows(conn, "fantasy_players", pd.DataFrame(fps))
@@ -119,3 +124,8 @@ def test_effective_win_bonus_prefers_setting(conn):
     seed_players_with_gap(conn, n=30, bonus=2.0)
     assert effective_win_bonus(conn, Settings(win_bonus=1.0)) == 1.0
     assert effective_win_bonus(conn, Settings()) == pytest.approx(2.0, abs=0.05)
+
+
+def test_win_bonus_uses_rounds_with_a_postponed_game(conn):
+    seed_players_with_gap(conn, n=30, bonus=2.0, played_rounds=range(1, 4), postponed=True)
+    assert estimate_win_bonus(conn, "E2026", 3) == pytest.approx(2.0, abs=0.05)

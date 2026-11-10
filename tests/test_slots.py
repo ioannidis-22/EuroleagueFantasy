@@ -29,3 +29,37 @@ def test_team_slots_and_next_round(fixture_conn):
     efs = ts[ts.tv_code == "EFS"].iloc[0]
     assert efs["opp_tv"] in set(ts.tv_code) and efs["opp_tv"] != "EFS"
     assert ts["is_home"].sum() == 10
+
+
+def seed_games(conn, spec):
+    """spec: list of (round, date, played)."""
+    from elfantasy.store import upsert_rows
+    upsert_rows(conn, "games", pd.DataFrame(
+        [{"season": "E2026", "game_code": i, "round": r, "phase": "RS", "local_date": f"{d}T20:00:00",
+          "home_club": "A", "away_club": "B", "home_score": 80 * p, "away_score": 70 * p, "played": p}
+         for i, (r, d, p) in enumerate(spec, 1)]))
+
+
+TODAY = "2026-11-10"
+
+
+def test_next_round_skips_postponed_game(conn):
+    seed_games(conn, [(5, "2026-10-14", 1), (5, "2026-10-14", 0),       # postponed, date passed
+                      (6, "2026-10-21", 1), (7, "2026-11-12", 0)])
+    assert next_round(conn, "E2026", today=TODAY) == 7
+
+
+def test_next_round_ignores_postponed_game_rescheduled_later(conn):
+    seed_games(conn, [(5, "2026-12-20", 0), (5, "2026-10-14", 1),       # moved to December
+                      (6, "2026-10-21", 1), (7, "2026-11-12", 0)])
+    assert next_round(conn, "E2026", today=TODAY) == 7
+
+
+def test_next_round_postponed_in_latest_played_round(conn):
+    seed_games(conn, [(10, "2026-11-05", 1), (10, "2026-11-05", 0), (11, "2026-11-12", 0)])
+    assert next_round(conn, "E2026", today=TODAY) == 11
+
+
+def test_next_round_mid_round_stays(conn):
+    seed_games(conn, [(11, "2026-11-11", 1), (11, "2026-11-12", 0), (12, "2026-11-17", 0)])
+    assert next_round(conn, "E2026", today="2026-11-12") == 11

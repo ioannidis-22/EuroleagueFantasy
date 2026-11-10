@@ -31,8 +31,8 @@ else:
 snap = read_df(conn, "SELECT imported_at FROM snapshots WHERE matchday = ?", (md,))
 last = read_df(conn, "SELECT MAX(local_date) d FROM games WHERE season = ? AND played = 1",
                (s.season,))["d"].iloc[0]
-full = read_df(conn, """SELECT MAX(round) r FROM (SELECT round FROM games WHERE season = ?
-                        GROUP BY round HAVING MIN(played) = 1)""", (s.season,))["r"].iloc[0]
+full = (r - 1) if r is not None else read_df(
+    conn, "SELECT MAX(round) r FROM games WHERE season = ? AND played = 1", (s.season,))["r"].iloc[0]
 missing = read_df(conn, """SELECT COUNT(*) n FROM games g WHERE season = ? AND played = 1 AND NOT EXISTS
                            (SELECT 1 FROM box_player b WHERE b.season = g.season AND b.game_code = g.game_code)""",
                   (s.season,))["n"].iloc[0]

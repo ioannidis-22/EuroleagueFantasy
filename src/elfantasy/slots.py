@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import date
 
 import pandas as pd
 
@@ -16,10 +17,22 @@ def assign_slots(games: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def next_round(conn: sqlite3.Connection, season: str) -> int | None:
-    r = read_df(conn, "SELECT MIN(round) r FROM games WHERE season = ? AND played = 0", (season,))
-    v = r["r"].iloc[0]
-    return None if pd.isna(v) else int(v)
+def next_round(conn: sqlite3.Connection, season: str, today: str | None = None) -> int | None:
+    """The round to plan for: earliest upcoming unplayed game at or after the latest round with results.
+
+    A postponed game left behind in an older round (or rescheduled to a later date) is ignored.
+    """
+    g = read_df(conn, "SELECT round, local_date, played FROM games WHERE season = ?", (season,))
+    if g.empty or not (g["played"] == 0).any():
+        return None
+    played = g.loc[g["played"] == 1, "round"]
+    floor = played.max() if len(played) else g["round"].min()
+    cand = g[(g["played"] == 0) & (g["round"] >= floor)]
+    if cand.empty:
+        return None
+    today = today or date.today().isoformat()
+    upcoming = cand[cand["local_date"].fillna("").str[:10] >= today]
+    return int((upcoming if len(upcoming) else cand)["round"].min())
 
 
 def team_slots(conn: sqlite3.Connection, season: str, round_: int) -> pd.DataFrame:

@@ -103,10 +103,8 @@ def estimate_win_bonus(conn: sqlite3.Connection, season: str, matchday: int) -> 
     snap = read_df(conn, "SELECT reference_matchdays FROM snapshots WHERE matchday = ?", (matchday,))
     if snap.empty:
         return None
-    reference = set(json.loads(snap["reference_matchdays"].iloc[0]))
-    rounds = read_df(conn, """SELECT round FROM games WHERE season = ?
-                              GROUP BY round HAVING MIN(played) = 1""", (season,))
-    usable = reference & set(rounds["round"].astype(int))
+    # every played game in the export's reference rounds (unplayed ones have no box rows)
+    usable = set(json.loads(snap["reference_matchdays"].iloc[0]))
     log = game_log(conn, season)
     log = log[log["round"].isin(usable) & (log["dnp"] == 0) & log["fantasy_id"].notna()]
     fpt = read_df(conn, "SELECT fantasy_id, fpt FROM fantasy_players WHERE matchday = ?", (matchday,))
