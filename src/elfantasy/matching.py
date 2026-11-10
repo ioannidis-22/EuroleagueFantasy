@@ -64,47 +64,62 @@ def match_players(conn: sqlite3.Connection, season: str, overrides_path: Path) -
     el["tokens"] = el["full_n"].map(lambda s: frozenset(s.split()))
     overrides = _load_overrides(overrides_path)
 
-    rows, unmatched = [], []
-    for f in fp.itertuples(index=False):
-        hit = _match_one(f, el, overrides)
-        if hit:
-            rows.append({"fantasy_id": f.fantasy_id, "player_code": hit[0], "method": hit[1]})
-        else:
-            unmatched.append({"fantasy_id": f.fantasy_id, "name": f.name, "surname": f.surname,
-                              "team": f.team})
+    # Assign links strongest method first; an Euroleague code is never given to two players.
+    taken: set[str] = set()
+    links: dict[str, tuple[str, str]] = {}
+    for method in METHODS:
+        free = el[~el["player_code"].isin(taken)]
+        for f in fp.itertuples(index=False):
+            if f.fantasy_id in links:
+                continue
+            code = _try(method, f, free, overrides)
+            if code is not None and code not in taken:
+                links[f.fantasy_id] = (code, method)
+                taken.add(code)
+
+    rows = [{"fantasy_id": k, "player_code": c, "method": m} for k, (c, m) in links.items()]
+    unmatched = fp[~fp["fantasy_id"].isin(links)][["fantasy_id", "name", "surname", "team"]]
     replace_rows(conn, "player_map", pd.DataFrame(rows, columns=["fantasy_id", "player_code", "method"]),
                  where={})
-    return MatchReport(len(rows), pd.DataFrame(unmatched, columns=["fantasy_id", "name", "surname", "team"]))
+    return MatchReport(len(rows), unmatched.reset_index(drop=True))
 
 
-def _match_one(f, el: pd.DataFrame, overrides: dict[str, str]) -> tuple[str, str] | None:
-    if f.fantasy_id in overrides:
-        return overrides[f.fantasy_id], "override"
+METHODS = ("override", "name", "surname", "fuzzy", "name_any_team")
+FUZZY_SURNAME_MIN = 0.80
+
+
+def _try(method: str, f, el: pd.DataFrame, overrides: dict[str, str]) -> str | None:
+    """Code for fantasy row f by one method, or None. `el` holds only still-free codes."""
+    if method == "override":
+        return overrides.get(f.fantasy_id)
     full = normalize_name(f"{f.name} {f.surname}")
     tokens = frozenset(full.split())
     sur = normalize_name(f.surname)
     team = el[el["tv_code"] == f.team]
 
-    exact = team[team["tokens"] == tokens]
-    if len(exact) == 1:
-        return exact.iloc[0]["player_code"], "name"
+    if method == "name":
+        exact = team[team["tokens"] == tokens]
+        return exact.iloc[0]["player_code"] if len(exact) == 1 else None
 
-    sur_tokens = set(sur.split())
-    by_sur = team[team["surname_n"].map(lambda s: s == sur or (sur_tokens and sur_tokens <= set(s.split())))]
-    if len(by_sur) == 1:
-        return by_sur.iloc[0]["player_code"], "surname"
+    if method == "surname":
+        sur_tokens = set(sur.split())
+        by_sur = team[team["surname_n"].map(lambda s: s == sur or (bool(sur_tokens) and sur_tokens <= set(s.split())))]
+        return by_sur.iloc[0]["player_code"] if len(by_sur) == 1 else None
 
-    if len(team):
-        scores = team["full_n"].map(lambda s: _ratio(full, s)).sort_values(ascending=False)
+    if method == "fuzzy":
+        # surnames must already be close, so a shared first name can't carry the match
+        ok = team[team["surname_n"].map(lambda s: _ratio(sur, s) >= FUZZY_SURNAME_MIN)]
+        if ok.empty:
+            return None
+        scores = ok["full_n"].map(lambda s: _ratio(full, s)).sort_values(ascending=False)
         best = scores.iloc[0]
         second = scores.iloc[1] if len(scores) > 1 else 0.0
         if best >= FUZZY_MIN and best - second >= FUZZY_MARGIN:
-            return team.loc[scores.index[0], "player_code"], "fuzzy"
+            return ok.loc[scores.index[0], "player_code"]
+        return None
 
     anywhere = el[el["tokens"] == tokens]
-    if anywhere["player_code"].nunique() == 1:
-        return anywhere.iloc[0]["player_code"], "name_any_team"
-    return None
+    return anywhere.iloc[0]["player_code"] if anywhere["player_code"].nunique() == 1 else None
 
 
 def unmatched_players(conn: sqlite3.Connection) -> pd.DataFrame:

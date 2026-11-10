@@ -102,3 +102,21 @@ def test_save_override_merges(tmp_path):
     p = tmp_path / "o.json"
     save_override(p, "1", "000001"); save_override(p, "TGB", "000002")
     assert json.loads(p.read_text(encoding="utf-8")) == {"1": "000001", "TGB": "000002"}
+
+
+def test_fuzzy_does_not_steal_a_different_surname(conn, NO):
+    # real case: Mijailovic (no roster entry) was fuzzy-linked to Danilovic's code
+    seed(conn, [("12453", "Uros", "Danilovic", "OLY"), ("12943", "Uros", "Mijailovic", "OLY")],
+         [("012453", "DANILOVIC, UROS", "OLY")])
+    r = match_players(conn, "E2026", NO)
+    assert mapped(conn, "12453") == ("012453", "name")
+    assert mapped(conn, "12943") is None and "12943" in set(r.unmatched["fantasy_id"])
+
+
+def test_each_euroleague_player_linked_at_most_once(conn, NO):
+    # two fantasy rows that would both surname-match the same code: stronger match keeps it
+    seed(conn, [("1", "Nick", "Calathes", "OLY"), ("2", "N.", "Calathes", "OLY")],
+         [("000009", "CALATHES, NICK", "OLY")])
+    match_players(conn, "E2026", NO)
+    codes = read_df(conn, "select player_code from player_map")["player_code"]
+    assert codes.is_unique and mapped(conn, "1") == ("000009", "name") and mapped(conn, "2") is None
