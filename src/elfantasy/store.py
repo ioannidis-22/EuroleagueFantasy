@@ -12,7 +12,7 @@ SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS snapshots(
     matchday INTEGER PRIMARY KEY, reference_matchdays TEXT, imported_at TEXT, file_hash TEXT);
 CREATE TABLE IF NOT EXISTS fantasy_players(
-    matchday INTEGER, fantasy_id INTEGER, name TEXT, surname TEXT, position TEXT, team TEXT,
+    matchday INTEGER, fantasy_id TEXT, name TEXT, surname TEXT, position TEXT, team TEXT,
     price REAL, plus REAL, fpt REAL, pts REAL, reb REAL, ast REAL, stl REAL, tov REAL, blk REAL,
     blka REAL, fd REAL, pf REAL, fg_missed REAL, ft_missed REAL,
     PRIMARY KEY(matchday, fantasy_id));
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS box_team(
 CREATE TABLE IF NOT EXISTS el_players(
     season TEXT, player_code TEXT, club_code TEXT, name TEXT, position TEXT,
     PRIMARY KEY(season, player_code, club_code));
-CREATE TABLE IF NOT EXISTS player_map(fantasy_id INTEGER PRIMARY KEY, player_code TEXT, method TEXT);
+CREATE TABLE IF NOT EXISTS player_map(fantasy_id TEXT PRIMARY KEY, player_code TEXT, method TEXT);
 """
 
 
