@@ -87,3 +87,18 @@ def test_uses_latest_snapshot_only(conn, NO):
                                                         "surname": "Guy", "team": "OLY", "position": "Guard"}]))
     r = match_players(conn, "E2026", NO)
     assert mapped(conn, "1") is None and list(r.unmatched["fantasy_id"]) == ["2"]
+
+
+def test_unmatched_players_reads_current_state(conn, NO):
+    from elfantasy.matching import unmatched_players
+    seed(conn, [("3469", "Sasha", "Vezenkov", "OLY"), ("9", "Nobody", "Here", "OLY")],
+         [("001234", "VEZENKOV, ALEKSANDAR", "OLY")])
+    match_players(conn, "E2026", NO)
+    assert list(unmatched_players(conn)["fantasy_id"]) == ["9"]
+
+
+def test_save_override_merges(tmp_path):
+    from elfantasy.matching import save_override
+    p = tmp_path / "o.json"
+    save_override(p, "1", "000001"); save_override(p, "TGB", "000002")
+    assert json.loads(p.read_text(encoding="utf-8")) == {"1": "000001", "TGB": "000002"}
