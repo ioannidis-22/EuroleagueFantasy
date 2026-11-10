@@ -28,3 +28,11 @@ def test_progress_callback(conn):
     seen = []
     refresh_season(conn, FakeClient(FIXTURES), "E2026", progress=lambda i, n: seen.append((i, n)))
     assert seen[-1] == (10, 10)
+
+
+def test_refresh_v3_source_stores_positions(conn):
+    c = FakeClient(FIXTURES)
+    r = refresh_season(conn, c, "E2026", source="v3")
+    assert r.new_box_scores == 10 and r.failed == []
+    pos = read_df(conn, "select position from el_players where player_code = '014163'")
+    assert list(pos["position"]) == ["Guard"]

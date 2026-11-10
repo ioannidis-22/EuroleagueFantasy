@@ -48,3 +48,14 @@ def test_people_players_only():
     pe = parse_people(load("people_E2026_OLY.json"), "E2026")
     assert len(pe) == 18 and set(pe["position"]) == {"Guard", "Forward", "Center"}
     assert set(pe["club_code"]) == {"OLY"}
+
+
+def test_parse_v3_stats():
+    from elfantasy.el_parse import parse_stats_v3
+    p, t, people = parse_stats_v3(load("stats_v3_E2026_1.json"), "E2026", 1)
+    assert len(p) == 24 and set(p["club_code"]) == {"RED", "ZAL"} and (p["dnp"] == 0).all()
+    but = p.set_index("player_code").loc["014163"]
+    assert but["minutes"] == pytest.approx(1033 / 60) and but["pir_official"] == 11 and but["is_starter"] == 0
+    assert (pir_box(p) == p["pir_official"]).all()
+    assert set(t["club_code"]) == {"RED", "ZAL"} and 77 in set(t["pts"])
+    assert len(people) == 24 and people.set_index("player_code").loc["014163", "position"] == "Guard"

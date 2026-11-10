@@ -74,3 +74,39 @@ def parse_people(payload: dict, season: str) -> pd.DataFrame:
              "position": x.get("positionName")}
             for x in items if x.get("typeName") == "Player"]
     return pd.DataFrame(rows, columns=["season", "player_code", "club_code", "name", "position"])
+
+
+V3_FIELDS = {
+    "points": "pts", "fieldGoalsMade2": "fgm2", "fieldGoalsAttempted2": "fga2",
+    "fieldGoalsMade3": "fgm3", "fieldGoalsAttempted3": "fga3", "freeThrowsMade": "ftm",
+    "freeThrowsAttempted": "fta", "offensiveRebounds": "oreb", "defensiveRebounds": "dreb",
+    "assistances": "ast", "steals": "stl", "turnovers": "tov", "blocksFavour": "blk",
+    "blocksAgainst": "blka", "foulsCommited": "pf", "foulsReceived": "fd",
+}
+
+
+def parse_stats_v3(payload: dict, season: str, game_code: int
+                   ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """v3 game stats -> (box_player rows, box_team rows, el_players rows with in-game position)."""
+    players, teams, people = [], [], []
+    for side in ("local", "road"):
+        block = payload.get(side) or {}
+        club = None
+        for item in block.get("players", []):
+            person, st = item["player"]["person"], item["stats"]
+            club = item["player"]["club"]["code"]
+            secs = float(st.get("timePlayed") or 0)
+            row = {"season": season, "game_code": int(game_code), "player_code": person["code"].strip(),
+                   "club_code": club, "is_starter": int(bool(st.get("startFive"))),
+                   "minutes": secs / 60, "dnp": int(secs == 0)}
+            row.update({dst: int(st.get(src) or 0) for src, dst in V3_FIELDS.items()})
+            row["pir_official"] = int(st.get("valuation") or 0)
+            players.append(row)
+            people.append({"season": season, "player_code": row["player_code"], "club_code": club,
+                           "name": person["name"], "position": item["player"].get("positionName")})
+        tot = block.get("total") or {}
+        if club and tot:
+            trow = {"season": season, "game_code": int(game_code), "club_code": club}
+            trow.update({dst: int(tot.get(src) or 0) for src, dst in V3_FIELDS.items()})
+            teams.append(trow)
+    return pd.DataFrame(players), pd.DataFrame(teams), pd.DataFrame(people)

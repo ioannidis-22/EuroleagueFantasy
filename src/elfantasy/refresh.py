@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from .el_client import ELApiError
-from .el_parse import parse_boxscore, parse_games, parse_people, parse_teams
+from .el_parse import parse_boxscore, parse_games, parse_people, parse_stats_v3, parse_teams
 from .store import read_df, upsert_many, upsert_rows
 
 
@@ -19,7 +19,9 @@ class RefreshReport:
 
 
 def refresh_season(conn: sqlite3.Connection, client, season: str,
-                   progress: Callable[[int, int], None] | None = None) -> RefreshReport:
+                   progress: Callable[[int, int], None] | None = None,
+                   source: str = "live") -> RefreshReport:
+    """source: "live" (official box score incl. DNPs, rate-limited) or "v3" (fast; no DNP rows)."""
     report = RefreshReport(season)
     payload = client.games(season)
     games = parse_games(payload, season)
@@ -38,10 +40,15 @@ def refresh_season(conn: sqlite3.Connection, client, season: str,
     todo = [int(c) for c in games.loc[games["played"] == 1, "game_code"] if int(c) not in have]
     for i, code in enumerate(todo, 1):
         try:
-            players, team_rows = parse_boxscore(client.boxscore(season, code), season, code)
+            items = []
+            if source == "v3":
+                players, team_rows, people = parse_stats_v3(client.stats_v3(season, code), season, code)
+                items.append(("el_players", people))
+            else:
+                players, team_rows = parse_boxscore(client.boxscore(season, code), season, code)
             if players.empty:
                 raise ELApiError("empty box score")
-            upsert_many(conn, [("box_player", players), ("box_team", team_rows)])
+            upsert_many(conn, [("box_player", players), ("box_team", team_rows), *items])
             report.new_box_scores += 1
         except (ELApiError, KeyError, ValueError, TypeError) as e:
             report.failed.append((code, str(e)))

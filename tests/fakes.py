@@ -7,8 +7,9 @@ import requests
 
 
 class FakeResponse:
-    def __init__(self, status: int, payload):
+    def __init__(self, status: int, payload, headers=None):
         self.status_code = status
+        self.headers = headers or {}
         self._payload = payload
         self.text = json.dumps(payload, ensure_ascii=False)
 
@@ -29,6 +30,8 @@ class FakeSession:
             if key in url:
                 if isinstance(val, Exception):
                     raise val
+                if isinstance(val, list):          # sequence of responses, one per call
+                    val = val.pop(0) if len(val) > 1 else val[0]
                 return FakeResponse(*val)
         return FakeResponse(404, {})
 
@@ -49,6 +52,10 @@ class FakeClient:
 
     def people(self, season, club_code):
         return self._load("people_E2026_OLY.json")
+
+    def stats_v3(self, season, game_code):
+        self.box_calls += 1
+        return self._load("stats_v3_E2026_1.json")
 
     def boxscore(self, season, game_code):
         from elfantasy.el_client import ELApiError

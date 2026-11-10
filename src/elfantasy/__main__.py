@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     client = ELClient(cache_dir(), delay_s=s.api_delay_s)
     status = 0
     for season in seasons:
-        rep = refresh_season(conn, client, season,
+        rep = refresh_season(conn, client, season, source="live" if season == s.season else "v3",
                              progress=lambda k, n: print(f"\r{season}: {k}/{n}", end="", flush=True))
         print(f"\n{season}: {rep.games_total} games, {rep.new_box_scores} new box scores, "
               f"{len(rep.failed)} failed")

@@ -52,3 +52,33 @@ def test_urls(tmp_path):
         "https://api-live.euroleague.net/v2/competitions/E/seasons/E2026/clubs/OLY/people",
         "https://live.euroleague.net/api/Boxscore?gamecode=7&seasoncode=E2026",
     ]
+
+
+def test_rate_limit_waits_retry_after(tmp_path, monkeypatch):
+    slept = []
+    monkeypatch.setattr("elfantasy.el_client.time.sleep", lambda s: slept.append(s))
+    s = FakeSession({"Boxscore": [(429, {}, {"Retry-After": "7"}), (200, {"Live": False, "Stats": []})]})
+    ELClient(tmp_path, delay_s=0, session=s, retries=2).boxscore("E2026", 9)
+    assert s.calls == 2 and 7 in slept
+
+
+def test_rate_limit_wait_is_capped(tmp_path, monkeypatch):
+    slept = []
+    monkeypatch.setattr("elfantasy.el_client.time.sleep", lambda s: slept.append(s))
+    s = FakeSession({"Boxscore": [(429, {}, {"Retry-After": "900"}), (200, {"Live": False})]})
+    ELClient(tmp_path, delay_s=0, session=s, max_wait_s=300).boxscore("E2026", 9)
+    assert max(slept) == 300
+
+
+def test_stats_v3_url_and_cache(tmp_path):
+    seen = []
+
+    class Rec(FakeSession):
+        def get(self, url, timeout=None):
+            seen.append(url)
+            return super().get(url, timeout)
+
+    c = ELClient(tmp_path, delay_s=0, session=Rec({"stats": (200, {"local": {}, "road": {}})}))
+    c.stats_v3("E2025", 12); c.stats_v3("E2025", 12)
+    assert seen == ["https://api-live.euroleague.net/v3/competitions/E/seasons/E2025/games/12/stats"]
+    assert (tmp_path / "E2025" / "stats_12.json").exists()
