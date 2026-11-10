@@ -74,3 +74,10 @@ def replace_rows(conn: sqlite3.Connection, table: str, df: pd.DataFrame,
 def upsert_rows(conn: sqlite3.Connection, table: str, df: pd.DataFrame) -> None:
     with conn:
         _insert(conn, table, df, "INSERT OR REPLACE")
+
+
+def upsert_many(conn: sqlite3.Connection, items: list[tuple[str, pd.DataFrame]]) -> None:
+    """Upsert several tables in a single transaction (all or nothing)."""
+    with conn:
+        for table, df in items:
+            _insert(conn, table, df, "INSERT OR REPLACE")
