@@ -23,9 +23,13 @@ def refresh_season(conn: sqlite3.Connection, client, season: str,
                    source: str = "live") -> RefreshReport:
     """source: "live" (official box score incl. DNPs, rate-limited) or "v3" (fast; no DNP rows)."""
     report = RefreshReport(season)
-    payload = client.games(season)
-    games = parse_games(payload, season)
-    teams = parse_teams(payload)
+    try:
+        payload = client.games(season)
+        games = parse_games(payload, season)
+        teams = parse_teams(payload)
+    except (ELApiError, KeyError, ValueError, TypeError) as e:
+        report.failed.append((0, f"fixtures: {type(e).__name__}: {e} — showing previously downloaded data"))
+        return report
     upsert_many(conn, [("games", games), ("teams", teams)])
     report.games_total = len(games)
 

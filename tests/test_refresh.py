@@ -1,4 +1,7 @@
+import pytest
+
 from conftest import FIXTURES
+from elfantasy.el_client import ELApiError
 from fakes import FakeClient
 from elfantasy.refresh import refresh_season
 from elfantasy.store import read_df
@@ -36,3 +39,27 @@ def test_refresh_v3_source_stores_positions(conn):
     assert r.new_box_scores == 10 and r.failed == []
     pos = read_df(conn, "select position from el_players where player_code = '014163'")
     assert list(pos["position"]) == ["Guard"]
+
+
+class DownClient(FakeClient):
+    def __init__(self, exc):
+        super().__init__(FIXTURES)
+        self.exc = exc
+
+    def games(self, season):
+        raise self.exc
+
+
+@pytest.mark.parametrize("exc", [ELApiError("offline"), KeyError("data")])
+def test_fixtures_failure_reported_not_raised(conn, exc):
+    r = refresh_season(conn, DownClient(exc), "E2026")
+    assert r.games_total == 0 and r.new_box_scores == 0
+    assert len(r.failed) == 1 and r.failed[0][0] == 0 and "fixtures" in r.failed[0][1]
+
+
+def test_malformed_games_payload_reported(conn):
+    class Bad(FakeClient):
+        def games(self, season):
+            return {"data": [{"gameCode": 1}]}          # missing round, clubs, ...
+    r = refresh_season(conn, Bad(FIXTURES), "E2026")
+    assert r.failed and "fixtures" in r.failed[0][1]
