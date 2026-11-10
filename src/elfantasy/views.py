@@ -38,3 +38,31 @@ def player_table(conn: sqlite3.Connection, season: str, matchday: int, summary: 
     else:
         t["opp_rank"], t["opp_idx"] = np.nan, np.nan
     return t
+
+
+RATE_STATS = ["pts", "oreb", "dreb", "ast", "stl", "blk", "fd", "tov", "blka", "pf",
+              "fga2", "fga3", "fta", "pir"]
+
+
+def player_rates40(log: pd.DataFrame, player_code: str) -> pd.Series:
+    p = log[(log["player_code"] == player_code) & (log["dnp"] == 0)]
+    mins = p["minutes"].sum()
+    if mins <= 0:
+        return pd.Series(np.nan, index=RATE_STATS)
+    return p[RATE_STATS].sum() / mins * 40
+
+
+def matchup_table(log: pd.DataFrame, player_code: str, opp: str, position: str,
+                  dvp_table: pd.DataFrame) -> pd.DataFrame:
+    rates = player_rates40(log, player_code)
+    key = (opp, position)
+    row = dvp_table.loc[key] if len(dvp_table) and key in dvp_table.index else pd.Series(dtype=float)
+    return pd.DataFrame({"stat": RATE_STATS, "player_per40": rates.values,
+                         "opp_index": [row.get(f"idx_{c}", np.nan) for c in RATE_STATS]})
+
+
+def history_vs_teams(log: pd.DataFrame, player_code: str) -> pd.DataFrame:
+    p = log[(log["player_code"] == player_code) & (log["dnp"] == 0)]
+    return (p.groupby("opp_tv").agg(games=("pir", "size"), pir_avg=("pir", "mean"),
+                                    min_avg=("minutes", "mean"), last=("local_date", "max"))
+            .reset_index().sort_values(["games", "pir_avg"], ascending=False))
