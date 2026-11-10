@@ -53,11 +53,15 @@ tab_heat, tab_team, tab_fix = st.tabs(["Heatmap", "Team", "Fixture difficulty"])
 
 with tab_heat:
     c = st.columns(5)
-    metric = c[0].selectbox("Stat", list(METRICS), format_func=METRICS.get)
-    window = c[1].selectbox("Window", list(WINDOWS), format_func=WINDOWS.get)
-    role = c[2].selectbox("Players", list(ROLES), format_func=ROLES.get)
-    basis = c[3].selectbox("Basis", list(BASES), index=1, format_func=BASES.get)
-    show = c[4].radio("Show", ["Index vs league", "Raw value"])
+    show = c[0].radio("Show", ["Index vs league", "Raw value"], key="heat_show")
+    metric = c[1].selectbox("Stat", list(METRICS), format_func=METRICS.get)
+    window = c[2].selectbox("Window", list(WINDOWS), format_func=WINDOWS.get)
+    role = c[3].selectbox("Players", list(ROLES), format_func=ROLES.get)
+    if show == "Raw value":
+        basis = c[4].selectbox("Basis", list(BASES), index=1, format_func=BASES.get)
+    else:
+        basis = "per40"
+        c[4].caption("Index = per 40 minutes vs league average, adjusted for small samples.")
     heatmap(table(s.season, window, role, basis), metric, show, "heat_current")
 
 with tab_team:
