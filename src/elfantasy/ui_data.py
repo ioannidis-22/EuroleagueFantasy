@@ -74,3 +74,20 @@ def latest_matchday() -> int | None:
 
 def clear_caches() -> None:
     st.cache_data.clear()
+
+
+@st.cache_data(show_spinner=False)
+def load_player_table(db_path: str, season: str, matchday: int, settings_dict: dict) -> pd.DataFrame:
+    from .views import player_table as build
+    s = Settings(**{**settings_dict, "history_seasons": tuple(settings_dict["history_seasons"])})
+    wb = load_win_bonus(db_path, settings_dict)
+    tab = load_dvp(db_path, season, "season", "all", "per40", wb, s.dvp_shrink_minutes)
+    return build(get_conn(db_path), season, matchday, load_summary(db_path, season, settings_dict), tab)
+
+
+def player_table() -> pd.DataFrame:
+    md = latest_matchday()
+    if md is None:
+        return pd.DataFrame()
+    s = settings()
+    return load_player_table(db(), s.season, md, asdict(s))
