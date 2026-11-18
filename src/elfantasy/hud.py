@@ -23,15 +23,24 @@ FORMAT = {"Price": "{:.1f}", "Last change": "{:+.1f}", "P(play)": "{:.0%}", "xPI
 STAT_NAMES = {**CHANNELS, "p2": "2P%", "p3": "3P%", "ftp": "FT%", "ftr": "FTA per foul drawn"}
 
 
+def _num(x: float) -> str:
+    return f"{x:.2f}".replace("-", "−")
+
+
+def _signed(x: float) -> str:
+    return f"{'+' if x >= 0 else '−'} {abs(x):.2f}"
+
+
 def _formula(r: MatchdayResult) -> None:
     rule, m = r.rule, r.model
     st.subheader(f"Round {r.round_} picks · export matchday {r.matchday}")
-    st.code(f"value      = P(play) × {rule.k:.3f} × (xPIR − break-even) + (1 − P(play)) × ({rule.d:+.2f})\n"
-            f"break-even = {rule.a:.2f} × price {rule.c:+.2f}\n"
-            f"xPIR       = {m.alpha:.2f} + {m.beta:.2f} × raw {m.gamma_home:+.2f} × home "
-            f"{m.delta_bounce:+.2f} × last-game swing\n"
-            "raw        = expected minutes × Σ channels (volume per minute × PIR per unit × opponent factor)",
-            language=None)
+    st.code("\n".join([
+        f"value      = P(play) × {rule.k:.3f} × (xPIR − break-even) + (1 − P(play)) × {_num(rule.d)}",
+        f"break-even = {rule.a:.2f} × price {_signed(rule.c)}",
+        f"xPIR       = {_num(m.alpha)} + {m.beta:.2f} × raw {_signed(m.gamma_home)} × home "
+        f"{_signed(m.delta_bounce)} × last-game swing",
+        "raw        = expected minutes × Σ channels (volume per minute × PIR per unit × opponent factor)"]),
+        language=None)
     if rule.source == "fitted":
         st.caption(f"Price rule fitted on {rule.n} player-rounds from your stored exports (R² {rule.r2:.2f}).")
     else:
