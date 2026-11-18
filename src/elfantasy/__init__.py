@@ -1,0 +1,1 @@
+"""Euroleague fantasy PIR assistant."""
