@@ -1,7 +1,9 @@
+import pandas as pd
 import pytest
 
-from elfantasy.xpir import EFFICIENCIES, VOLUME_STATS, channel_table, foul_value, player_priors
-from synth import make_log, pir_games
+from elfantasy.xpir import (EFFICIENCIES, HALF_LIVES, VOLUME_STATS, channel_table, features_for_round,
+                            fit_xpir, foul_value, player_priors, predict_xpir)
+from synth import make_log, pir_games, synth_poss, synth_season
 
 INF = float("inf")
 ZERO = {s: 0.0 for s in [*VOLUME_STATS, *EFFICIENCIES]}
@@ -65,3 +67,66 @@ def test_last_dev_and_dnps_ignored():
     t = channel_table(make_log({"p": {"position": "Guard", "games": games}}), ZERO, INF)
     assert t.loc["p", "last_dev"] == pytest.approx(2 - 11)
     assert t.loc["p", "games"] == 3 and t.loc["p", "pir_avg"] == pytest.approx(8)
+
+
+def fouls_league():
+    """Rounds 1-5: four guards alternate between SOFT (they draw 6 fouls) and AVG (they draw 2)."""
+    players = {}
+    for i in range(4):
+        games = []
+        for r in range(1, 6):
+            soft = (r + i) % 2 == 0
+            games.append({"round": r, "opp_tv": "SOFT" if soft else "AVG", "minutes": 30,
+                          "fd": 6 if soft else 2, "fta": 6 if soft else 2, "ftm": 4 if soft else 1,
+                          "ast": 3, "fga2": 4, "fgm2": 2, "fga3": 3, "fgm3": 1})
+        players[f"g{i}"] = {"position": "Guard", "games": games}
+    return make_log(players)
+
+
+def fixture(opp, code="g0", position="Guard", home=1):
+    return pd.DataFrame({"player_code": [code], "position": [position], "opp_tv": [opp], "is_home": [home]})
+
+
+def test_opponent_multiplier_raises_matching_channel():
+    log = fouls_league()
+    poss = synth_poss(log)
+    soft = features_for_round(log, poss, 6, fixture("SOFT"), ZERO, INF, 0.5)
+    avg = features_for_round(log, poss, 6, fixture("AVG"), ZERO, INF, 0.5)
+    assert soft.loc["g0", "opp_fd"] > 1.0 > avg.loc["g0", "opp_fd"]
+    assert soft.loc["g0", "opp_ast"] == pytest.approx(1.0)
+    assert soft.loc["g0", "raw"] > avg.loc["g0", "raw"]
+
+
+def test_no_leakage_from_target_round_or_later():
+    log = synth_season(rounds=8, players=20, seed=3)
+    changed = log.copy()
+    later = changed["round"] >= 6
+    changed.loc[later, ["ast", "fd", "minutes"]] = changed.loc[later, ["ast", "fd", "minutes"]] * 3
+    changed.loc[later, "pir"] += 50
+    fx = log[log["round"] == 6][["player_code", "position", "opp_tv", "is_home"]]
+    a = features_for_round(log, synth_poss(log), 6, fx, ZERO, INF, 0.5)
+    b = features_for_round(changed, synth_poss(changed), 6, fx, ZERO, INF, 0.5)
+    pd.testing.assert_frame_equal(a, b)
+
+
+@pytest.fixture(scope="module")
+def season():
+    return synth_season(rounds=10, players=40, seed=1)
+
+
+@pytest.fixture(scope="module")
+def model(season):
+    return fit_xpir(season, synth_poss(season), rounds=list(range(4, 11)))
+
+
+def test_fit_recovers_calibration_on_synthetic_season(model):
+    assert 0.6 < model.beta < 1.4 and model.mae < model.mae_baseline
+    assert set(model.k) == {*VOLUME_STATS, *EFFICIENCIES} and model.half_life in HALF_LIVES
+    assert model.train_rows > 200
+
+
+def test_predict_handles_player_without_history(model, season):
+    fx = pd.concat([fixture("T1", code="P000"), fixture("T1", code="new")])
+    out = predict_xpir(model, season, synth_poss(season), 11, fx)
+    assert out.loc["new", "xpir"] > 0 and out.loc["new", "games"] == 0
+    assert out.loc["P000", "games"] > 0

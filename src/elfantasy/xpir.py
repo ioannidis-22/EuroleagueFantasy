@@ -1,11 +1,16 @@
 """Expected PIR next round: per-channel volume x efficiency, valued with PIR's own arithmetic.
 
-xPIR(raw) = expected minutes * sum over channels of (per-minute volume * PIR per unit * opponent factor)
+raw  = expected minutes * sum over channels of (per-minute volume * PIR per unit * opponent factor)
+xPIR = alpha + beta * raw + gamma * home + delta * (last game PIR - his earlier average)
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
+import numpy as np
 import pandas as pd
 
+from .dvp import POSITIONS, dvp
 from .metrics import played_games
 
 VOLUME_STATS = ["fga2", "fga3", "fd", "oreb", "dreb", "ast", "stl", "blk", "tov", "blka", "pf"]
@@ -13,6 +18,13 @@ EFFICIENCIES = {"p2": ("fgm2", "fga2"), "p3": ("fgm3", "fga3"), "ftp": ("ftm", "
 FIXED_UNIT = {"oreb": 1.0, "dreb": 1.0, "ast": 1.0, "stl": 1.0, "blk": 1.0,
               "tov": -1.0, "blka": -1.0, "pf": -1.0}
 LEAGUE = "League"          # prior row for players without a known position
+OPP_STATS = VOLUME_STATS   # the opponent's Defense-vs-Position index scales each volume
+SUM_COLS = [*VOLUME_STATS, "fgm2", "fgm3", "ftm", "fta", "minutes"]
+
+VOLUME_GRID = (0, 50, 100, 200, 400, 800, 1600)     # shrink strength in minutes
+EFFICIENCY_GRID = (0, 5, 10, 20, 40, 80, 160)        # shrink strength in attempts
+MINUTES_GRID = (0, .25, .5, .75, 1)                  # weight of season minutes vs last 3
+HALF_LIVES = (3, 6, 12, float("inf"))                # recency half-life in games
 
 
 def foul_value(fta_per_fd, ft_pct):
@@ -36,12 +48,11 @@ def _with_values(t: pd.DataFrame) -> pd.DataFrame:
 def player_priors(log_before: pd.DataFrame) -> pd.DataFrame:
     """Pooled per-minute rates and efficiencies per position, plus a league-wide row."""
     p = played_games(log_before)
-    groups = [*p.groupby("position"), (LEAGUE, p)]
     rows = {}
-    for name, g in groups:
-        tot = g[[*VOLUME_STATS, "fgm2", "fgm3", "ftm", "fta", "minutes"]].sum()
-        row = {f"r_{s}": tot[s] / tot["minutes"] for s in VOLUME_STATS}
-        row.update({e: tot[m] / tot[a] if tot[a] > 0 else float("nan") for e, (m, a) in EFFICIENCIES.items()})
+    for name, g in [*p.groupby("position"), (LEAGUE, p)]:
+        tot = g[SUM_COLS].sum()
+        row = {f"r_{s}": tot[s] / tot["minutes"] if tot["minutes"] > 0 else np.nan for s in VOLUME_STATS}
+        row.update({e: tot[m] / tot[a] if tot[a] > 0 else np.nan for e, (m, a) in EFFICIENCIES.items()})
         row["min_median"] = g["minutes"].median()
         rows[name] = row
     pri = pd.DataFrame.from_dict(rows, orient="index")
@@ -65,8 +76,7 @@ def channel_table(log_before: pd.DataFrame, k: dict[str, float], half_life: floa
     p = played_games(log_before).sort_values(["local_date", "game_code"])
     by = p.groupby("player_code")
     w = 0.5 ** (by.cumcount(ascending=False) / half_life)
-    cols = [*VOLUME_STATS, "fgm2", "fgm3", "ftm", "fta", "minutes"]
-    ws = p[cols].mul(w, axis=0).groupby(p["player_code"]).sum()
+    ws = p[SUM_COLS].mul(w, axis=0).groupby(p["player_code"]).sum()
     n = by.size()
     last = by["pir"].last()
 
@@ -83,3 +93,162 @@ def channel_table(log_before: pd.DataFrame, k: dict[str, float], half_life: floa
         den = ws[att] + k[e]
         t[e] = ((ws[made] + prior[e] * k[e]) / den).where(den > 0, prior[e])
     return _with_values(t)
+
+
+@dataclass
+class XpirModel:
+    """Every fitted xPIR number. The defaults are the unfitted model (train_rows == 0)."""
+    k: dict[str, float] = field(default_factory=lambda: {**dict.fromkeys(VOLUME_STATS, 100.0),
+                                                         **dict.fromkeys(EFFICIENCIES, 20.0)})
+    half_life: float = float("inf")
+    w_season_min: float = 0.5
+    alpha: float = 0.0
+    beta: float = 1.0
+    gamma_home: float = 0.0
+    delta_bounce: float = 0.0
+    train_rows: int = 0
+    mae: float = float("nan")
+    mae_baseline: float = float("nan")
+
+    def calibrate(self, f: pd.DataFrame) -> pd.Series:
+        """xPIR from features: alpha + beta*raw + gamma*home + delta*last_dev, floored at 0."""
+        x = self.alpha + self.beta * f["raw"] + self.gamma_home * f["home"] + self.delta_bounce * f["last_dev"]
+        return x.clip(lower=0)
+
+
+@dataclass
+class _Before:
+    """What a round's prediction may use: games before it, position priors, opponent indices."""
+    log: pd.DataFrame
+    priors: pd.DataFrame
+    opp: pd.DataFrame
+
+
+def _before(log: pd.DataFrame, poss: pd.DataFrame, round_: int) -> _Before:
+    before = log[log["round"] < round_]
+    has_positions = played_games(before)["position"].isin(POSITIONS).any()
+    opp = (dvp(before, poss, 0.0, basis="per40", shrink_minutes=400)[[f"idx_{s}" for s in OPP_STATS]]
+           if has_positions else pd.DataFrame(columns=[f"idx_{s}" for s in OPP_STATS], dtype=float))
+    return _Before(before, player_priors(before), opp)
+
+
+def _features(b: _Before, fixtures: pd.DataFrame, k: dict[str, float], half_life: float,
+              w_season_min: float) -> pd.DataFrame:
+    fx = fixtures.drop_duplicates("player_code").set_index("player_code")
+    t = channel_table(b.log, k, half_life).reindex(fx.index)
+    position = fx["position"].where(fx["position"].notna(), t["position"])
+    new = t["games"].isna()
+    if new.any():                          # no games before the round: his position's prior
+        fill = prior_rows(b.priors, position[new])
+        cols = [c for c in fill.columns if c in t.columns]
+        t.loc[new, cols] = fill[cols]
+        for c in ("min_w", "min_season", "min_last3"):
+            t.loc[new, c] = fill["min_median"]
+        t.loc[new, ["games", "last_dev"]] = 0
+    t["position"] = position
+    t["opp_tv"] = fx["opp_tv"]
+    t["home"] = fx["is_home"].astype(float)
+    t["xmin"] = w_season_min * t["min_season"] + (1 - w_season_min) * t["min_last3"]
+    keys = pd.MultiIndex.from_arrays([t["opp_tv"], t["position"]])
+    idx = b.opp.reindex(keys).set_axis(t.index) if len(b.opp) else b.opp.reindex(t.index)
+    for s in OPP_STATS:
+        t[f"opp_{s}"] = (1 + idx[f"idx_{s}"]).clip(0.5, 1.5).fillna(1.0)
+    t["raw"] = t["xmin"] * sum(t[f"r_{s}"] * t[f"v_{s}"] * t[f"opp_{s}"] for s in VOLUME_STATS)
+    return t
+
+
+def features_for_round(log: pd.DataFrame, poss: pd.DataFrame, round_: int, fixtures: pd.DataFrame,
+                       k: dict[str, float], half_life: float, w_season_min: float) -> pd.DataFrame:
+    """Per fixture player (index player_code): raw xPIR and its pieces, from games before round_ only.
+
+    fixtures: player_code, position, opp_tv, is_home.
+    """
+    return _features(_before(log, poss, round_), fixtures, k, half_life, w_season_min)
+
+
+def predict_xpir(model: XpirModel, log: pd.DataFrame, poss: pd.DataFrame, round_: int,
+                 fixtures: pd.DataFrame) -> pd.DataFrame:
+    f = features_for_round(log, poss, round_, fixtures, model.k, model.half_life, model.w_season_min)
+    return f.assign(xpir=model.calibrate(f))
+
+
+def _fixtures(games: pd.DataFrame) -> pd.DataFrame:
+    return games[["player_code", "position", "opp_tv", "is_home"]]
+
+
+def _shrink_rows(befores: dict[int, _Before], targets: dict[int, pd.DataFrame]) -> pd.DataFrame:
+    """Per (round, player with history): unweighted history sums, his round totals and his prior."""
+    out = []
+    for r, b in befores.items():
+        hist = played_games(b.log).groupby("player_code")[SUM_COLS].sum()
+        tgt = targets[r].set_index("player_code")
+        common = tgt.index.intersection(hist.index)
+        prior = prior_rows(b.priors, tgt.loc[common, "position"])
+        out.append(pd.concat({"hist": hist.loc[common], "tgt": tgt.loc[common, SUM_COLS], "prior": prior},
+                             axis=1))
+    return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
+
+
+def _best(grid, hist_x, hist_n, prior, y, weight) -> float:
+    """The grid value whose shrunk history best predicts y (weighted squared error)."""
+    def err(k):
+        den = hist_n + k
+        pred = np.where(den > 0, (hist_x + prior * k) / den.where(den > 0, 1), prior)
+        return float((weight * (y - pred) ** 2).sum())
+    return float(min(grid, key=err))
+
+
+def _fit_k(rows: pd.DataFrame) -> dict[str, float]:
+    h, t, p = rows["hist"], rows["tgt"], rows["prior"]
+    k = {s: _best(VOLUME_GRID, h[s], h["minutes"], p[f"r_{s}"], t[s] / t["minutes"], t["minutes"])
+         for s in VOLUME_STATS}
+    for e, (made, att) in EFFICIENCIES.items():
+        ok = t[att] > 0
+        k[e] = _best(EFFICIENCY_GRID, h.loc[ok, made], h.loc[ok, att], p.loc[ok, e],
+                     t.loc[ok, made] / t.loc[ok, att], t.loc[ok, att])
+    return k
+
+
+def _fit_minutes_weight(befores: dict[int, _Before], targets: dict[int, pd.DataFrame]) -> float:
+    zero = dict.fromkeys([*VOLUME_STATS, *EFFICIENCIES], 0.0)
+    m = pd.concat([targets[r].set_index("player_code")[["minutes"]]
+                   .join(channel_table(b.log, zero, float("inf"))[["min_season", "min_last3"]], how="inner")
+                   for r, b in befores.items()])
+    return float(min(MINUTES_GRID, key=lambda w: float(
+        ((m["minutes"] - w * m["min_season"] - (1 - w) * m["min_last3"]) ** 2).sum())))
+
+
+def _calibration(rows: pd.DataFrame) -> list[float]:
+    x = np.column_stack([np.ones(len(rows)), rows["raw"], rows["home"], rows["last_dev"]]).astype(float)
+    coef, *_ = np.linalg.lstsq(x, rows["pir"].to_numpy(float), rcond=None)
+    return [float(c) for c in coef]
+
+
+def fit_xpir(log: pd.DataFrame, poss: pd.DataFrame, rounds: list[int]) -> XpirModel:
+    """Fit every xPIR number on the given rounds, each predicted only from games before it.
+
+    Per-stat shrink strengths and the minutes weight are fitted first (equal game weights), then the
+    half-life is picked by the calibrated MAE. Training rows: players who played the round and had
+    played before it. With no such rows the unfitted XpirModel() is returned.
+    """
+    played = played_games(log)
+    targets = {int(r): g.drop_duplicates("player_code")
+               for r, g in played[played["round"].isin(rounds)].groupby("round")}
+    befores = {r: _before(log, poss, r) for r in targets}
+    shrink = _shrink_rows(befores, targets)
+    if shrink.empty:
+        return XpirModel()
+    k = _fit_k(shrink)
+    w = _fit_minutes_weight(befores, targets)
+
+    best = None
+    for hl in HALF_LIVES:
+        rows = pd.concat([_features(befores[r], _fixtures(g), k, hl, w).join(g.set_index("player_code")["pir"])
+                          for r, g in targets.items()])
+        rows = rows[rows["games"] > 0]
+        m = XpirModel(k, hl, w, *_calibration(rows), train_rows=len(rows))
+        m.mae = float((rows["pir"] - m.calibrate(rows)).abs().mean())
+        m.mae_baseline = float((rows["pir"] - rows["pir_avg"]).abs().mean())
+        if best is None or m.mae < best.mae:
+            best = m
+    return best
