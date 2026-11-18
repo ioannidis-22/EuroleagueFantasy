@@ -73,8 +73,17 @@ Free throws are reached only through fouls drawn (FTA = FD × FTA/FD), so they a
   (for example, a team that fouls a lot boosts FD). Efficiencies are adjusted by the 2P%, 3P% and
   FT%-allowed indices only if the backtest shows that helps.
 - **Home/away:** one fitted factor.
+- **Bounce-back term:** last game's PIR minus his norm, with a fitted weight that is refit every
+  round.
+  - The user expects good players to bounce back after a bad game. This season's data (126 bad games
+    by 10+ PIR players) shows no bounce-back: weight +0.09 per PIR, likely range −0.02 to +0.18.
+  - The term stays in so the formula picks up the effect if it appears. The backtest reports its
+    current weight.
 - **Calibration:** a final fitted scale and intercept on xPIR, checked by the backtest against
-  "season average PIR".
+  "season average PIR". Good players' next games run below their averages (fitted slope 0.83), and
+  the calibration absorbs that.
+- **Buying the dip** is handled through price: a bad round lowers his price, which lowers
+  break-even by about 1.14 × the drop, while xPIR still rests on his whole season.
 - **P(play):** share of his team's last 5 games he played, smoothed toward 0.9 for small samples.
 
 **Stat analysis output:** a second sheet per player and channel, showing volume, efficiency, PIR
@@ -87,8 +96,10 @@ per unit, PIR per game and the next opponent's effect. This shows *why* a player
 1. Uses the latest imported export (prices) and the downloaded games (refresh first).
 2. Fits xPIR on all completed rounds, then scores every player for the next round.
 3. Prints the top 15 BUY and SELL and writes `data/value_round_<N>.xlsx` with two sheets: the value table and the per-channel stat analysis.
-   - Columns: player, team, position, price, opponent, home, P(play), xPIR, break-even, value,
-     ROI, label.
+   - Columns: player, team, position, price, last price change, opponent, home, P(play), xPIR,
+     break-even, value, ROI, label, DIP.
+   - **DIP** flags players with a season PIR average of 10+ whose price fell by 0.3 or more last
+     round and who are still labelled BUY.
 
 `python -m elfantasy value --backtest` replays rounds 5 onward. Each round is fitted only on
 earlier rounds and predicted, then it reports:
