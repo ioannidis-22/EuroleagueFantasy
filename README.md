@@ -1,10 +1,11 @@
-# Euroleague Fantasy PIR Assistant
+# Euroleague Fantasy Value Picks
 
-A local app for a PIR-scored Euroleague fantasy game. It combines your fantasy export (prices and
-fantasy points) with Euroleague box scores to show form, consistency, value, T-slots and
-Defense vs Position.
+One local page for a PIR-scored Euroleague fantasy game played like a stock exchange, where profit
+comes from price rises. Each matchday you upload the game's export. The page shows every player's
+expected price change for the next round, labelled BUY, HOLD or SELL, along with the formula and
+its fitted numbers.
 
-Design: `docs/superpowers/specs/2026-11-10-euroleague-fantasy-pir-design.md`
+Design: `docs/superpowers/specs/2026-11-18-value-function-design.md`
 
 ## Setup (once)
 
@@ -12,44 +13,55 @@ Requires Python 3.12+. Keep the folder on a short path (for example `C:\elfantas
 260-character path limit breaks the install in deeply nested folders.
 
 1. Double-click `setup.bat`. It creates `.venv` and installs everything.
-2. Double-click `run_app.bat`. The app opens in your browser.
-3. On the **Data** page, click **Refresh games**. It downloads this season's fixtures and box
-   scores (a few minutes the first time).
+2. Double-click `run_app.bat`. The page opens in your browser.
 
-## Every round
+## Every matchday
 
 1. Download `players_stats.xlsx` from the fantasy site.
-2. **Data** page → *Import fantasy export*.
-3. **Data** page → *Refresh games*.
-4. Read the **Round dashboard**, then dig into **Players**, **Player**, **Compare** and **Opponents**.
+2. Open the page (`run_app.bat`), upload the file and click **Run**.
+3. The page imports the export, downloads new box scores, refits the model and scores the first
+   round with no game played yet. The box-score server rate-limits bursts, so the first run of
+   the season, or a run after a long gap, can pause for a few minutes.
+4. Read the formula card, then the table. Filter it by label or position, and download the Excel
+   file for the per-channel stat analysis and the full model.
 
-From a terminal, `.venv\Scripts\python -m elfantasy refresh` and
-`.venv\Scripts\python -m elfantasy import path\to\players_stats.xlsx` do the same.
+Upload every matchday's export. The game's price rule is fitted from exports of consecutive
+matchdays, and until two are stored the page uses default numbers and says so. The backtest's
+BUY/SELL hit rates also come from stored exports.
 
-## Pages
+## What the page shows
 
-| Page | What it shows |
-|---|---|
-| Round dashboard | Next round by T-slot, data freshness and alerts, in/out of form, value, price risers/fallers, most reliable |
-| Players | Filterable, sortable table of every player; CSV export |
-| Player | Game log, minutes, PIR breakdown, floor/ceiling, price history, next matchup, this season vs each team |
-| Compare | 2–4 players side by side |
-| Opponents | Defense vs Position heatmap, team detail, fixture difficulty for the next rounds |
-| Data | Import, refresh, unmatched players and manual links, settings |
+- **Formula.** `value = P(play) × k × (xPIR − break-even) + (1 − P(play)) × d`, where
+  `break-even = a × price + c`. The page shows the fitted `k, a, c, d` and where they came from.
+- **xPIR**, the expected PIR if he plays. It is built per scoring channel (2-point and 3-point
+  attempts, fouls drawn, rebounds, assists, steals, blocks, turnovers, blocks against, fouls
+  committed) as volume × efficiency, scaled by the next opponent's Defense vs Position. It is then
+  calibrated with home/away and last-game terms. The expander lists how strongly each stat is
+  pulled toward its position average, along with the bounce-back weight.
+- **Backtest line.** It compares how far xPIR missed in past rounds with the season average, and
+  how often BUY and SELL calls were right.
+- **Table.** Every player in the export, best value first: price, last price change, opponent and
+  T-slot, P(play), xPIR, break-even, value, ROI, label and DIP. **DIP** marks a BUY with a season
+  average of 10+ PIR whose price fell by 0.3 or more last round. **NO DATA** marks a player not
+  linked to Euroleague data or without a game next round. These rows stay at the bottom.
+
+## Settings and manual links
+
+Both files are optional and live in `data/`:
+
+- `settings.json`: `value_buy` and `value_sell` (the BUY/SELL thresholds, default ±0.10),
+  `dip_min_avg` and `dip_drop` (default 10 and 0.3), `api_delay_s` and `season`.
+- `player_overrides.json`: `{"<fantasy ID>": "<Euroleague player code>"}` for players the name
+  matcher misses.
 
 ## Where data lives
 
 Everything is in `data/` (not in git): `elfantasy.db` (SQLite), `cache/` (downloaded box scores),
-`imports/` (your exports by matchday), `player_overrides.json` (manual player links) and
-`settings.json`.
+`imports/` (your exports by matchday), `player_overrides.json` and `settings.json`.
 
-## Data sources and limits
-
-- Only the current season is used. Box scores come from the official live box-score service,
-  which rate-limits bursts. The app waits when told to, so a refresh can pause for a few minutes.
-- The fantasy game's win bonus is estimated from your data (Data → Settings shows it). You can
-  set it by hand.
-- Players with no games this season, usually injured or departed, show as unmatched. That's expected.
+From a terminal, `.venv\Scripts\python -m elfantasy refresh` and
+`.venv\Scripts\python -m elfantasy import path\to\players_stats.xlsx` still download games and
+import an export without the page.
 
 ## Tests
 
