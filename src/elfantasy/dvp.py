@@ -1,13 +1,10 @@
 """Defense vs Position: what each team concedes to Guards, Forwards and Centers."""
 from __future__ import annotations
 
-import sqlite3
-
 import numpy as np
 import pandas as pd
 
 from .pir import BOX_COMPONENTS
-from .slots import team_slots
 
 POSITIONS = ("Guard", "Forward", "Center")
 DVP_COMPONENTS = BOX_COMPONENTS + ["pir", "fpt"]
@@ -97,36 +94,3 @@ def dvp(log: pd.DataFrame, poss: pd.DataFrame, win_bonus: float, window: str = "
     out["rank_pir"] = out.groupby(level="position")["idx_pir"].rank(ascending=False, method="min").astype(int)
     return out.sort_index()
 
-
-def how_they_concede(row: pd.Series, n: int = 3) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
-    items = [(k[4:], float(v)) for k, v in row.items()
-             if k.startswith("idx_") and k not in ("idx_pir", "idx_fpt") and pd.notna(v)]
-    items.sort(key=lambda kv: kv[1], reverse=True)
-    lows = sorted(items, key=lambda kv: kv[1])[:n]
-    return items[:n], lows
-
-
-def _fixture_cells(conn, season, from_round, n_rounds, position, dvp_table):
-    cells = {}
-    for r in range(from_round, from_round + n_rounds):
-        for t in team_slots(conn, season, r).itertuples(index=False):
-            key = (t.opp_tv, position)
-            idx = dvp_table.loc[key, "idx_pir"] if key in dvp_table.index else np.nan
-            cells.setdefault((t.tv_code, f"R{r}"), []).append((t.opp_tv, int(t.slot), idx))
-    return cells
-
-
-def fixture_difficulty_values(conn: sqlite3.Connection, season: str, from_round: int, n_rounds: int,
-                              position: str, dvp_table: pd.DataFrame) -> pd.DataFrame:
-    cells = _fixture_cells(conn, season, from_round, n_rounds, position, dvp_table)
-    s = pd.Series({k: np.nanmean([c[2] for c in v]) if any(pd.notna(c[2]) for c in v) else np.nan
-                   for k, v in cells.items()}, dtype=float)
-    return s.unstack().sort_index() if len(s) else pd.DataFrame()
-
-
-def fixture_difficulty(conn: sqlite3.Connection, season: str, from_round: int, n_rounds: int,
-                       position: str, dvp_table: pd.DataFrame) -> pd.DataFrame:
-    cells = _fixture_cells(conn, season, from_round, n_rounds, position, dvp_table)
-    fmt = lambda c: f"{c[0]} T{c[1]} " + ("n/a" if pd.isna(c[2]) else f"{c[2]:+.0%}")
-    s = pd.Series({k: " / ".join(fmt(c) for c in v) for k, v in cells.items()}, dtype=object)
-    return s.unstack().sort_index() if len(s) else pd.DataFrame()

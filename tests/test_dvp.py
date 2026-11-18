@@ -3,11 +3,8 @@ from statistics import mean
 import pandas as pd
 import pytest
 
-from elfantasy.dvp import (dvp, fixture_difficulty, fixture_difficulty_values, how_they_concede,
-                           possessions)
-from elfantasy.metrics import game_log
+from elfantasy.dvp import dvp, possessions
 from elfantasy.pir import BOX_COMPONENTS
-from elfantasy.store import read_df
 
 
 def rows(def_tv, game_code, day, players, position="Center", attacker_home=0, won=0, starter=1):
@@ -88,22 +85,6 @@ def test_shooting_allowed(log):
     log.loc[log.game_code == 1, ["fgm2", "fga2"]] = [2, 4]
     t = dvp(log, poss_for(log), 0.0, shrink_minutes=0).loc[("AAA", "Center")]
     assert t.fg2_pct == pytest.approx(4 / 8)
-
-
-def test_how_they_concede():
-    row = pd.Series({"idx_pts": 0.3, "idx_oreb": 0.5, "idx_ast": -0.2, "idx_tov": -0.4,
-                     "idx_pir": 0.9, "idx_fpt": 0.9})
-    hi, lo = how_they_concede(row, n=2)
-    assert hi == [("oreb", 0.5), ("pts", 0.3)] and lo == [("tov", -0.4), ("ast", -0.2)]
-
-
-def test_fixture_difficulty_shape(fixture_conn):
-    log = game_log(fixture_conn, "E2026")
-    tab = dvp(log, possessions(read_df(fixture_conn, "select * from box_team")), 0.0)
-    vals = fixture_difficulty_values(fixture_conn, "E2026", 11, 1, "Guard", tab)
-    labels = fixture_difficulty(fixture_conn, "E2026", 11, 1, "Guard", tab)
-    assert vals.shape == (20, 1) and list(vals.columns) == ["R11"]
-    assert labels.shape == (20, 1) and labels.iloc[0, 0].split()[1] in {"T1", "T2", "T3"}
 
 
 def test_possessions():

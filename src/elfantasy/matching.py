@@ -121,21 +121,3 @@ def _try(method: str, f, el: pd.DataFrame, overrides: dict[str, str]) -> str | N
     anywhere = el[el["tokens"] == tokens]
     return anywhere.iloc[0]["player_code"] if anywhere["player_code"].nunique() == 1 else None
 
-
-def unmatched_players(conn: sqlite3.Connection) -> pd.DataFrame:
-    """Latest-snapshot fantasy players without a player_map entry."""
-    return read_df(conn, """SELECT fp.fantasy_id, fp.name, fp.surname, fp.team, fp.position
-                            FROM fantasy_players fp
-                            LEFT JOIN player_map pm ON pm.fantasy_id = fp.fantasy_id
-                            WHERE fp.matchday = (SELECT MAX(matchday) FROM snapshots)
-                              AND pm.fantasy_id IS NULL
-                            ORDER BY fp.team, fp.surname""")
-
-
-def save_override(path: Path, fantasy_id: str, player_code: str) -> None:
-    """Add/replace one manual link in the overrides JSON (UTF-8)."""
-    path = Path(path)
-    data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    data[str(fantasy_id)] = str(player_code)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

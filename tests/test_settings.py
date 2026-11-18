@@ -1,21 +1,16 @@
 import json
 
-from elfantasy.settings import Settings, load_settings, save_settings
+from elfantasy.settings import Settings, load_settings
 
 
 def test_defaults_when_missing(tmp_path):
     s = load_settings(tmp_path / "none.json")
-    assert s.season == "E2026" and s.boom == 20.0 and s.win_bonus is None
+    assert s == Settings() and s.season == "E2026"
     assert not hasattr(s, "history_seasons")
 
 
-def test_roundtrip_non_ascii_and_unknown_keys(tmp_path):
+def test_reads_non_ascii_and_ignores_unknown_keys(tmp_path):
     p = tmp_path / "s.json"
-    save_settings(Settings(win_bonus=1.5), p)
-    data = json.loads(p.read_text(encoding="utf-8"))
-    data["junk"] = "Παπαπέτρου"
+    data = {"season": "E2025", "junk": "Παπαπέτρου", "history_seasons": ["E2023"], "boom": 20.0}
     p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    data["history_seasons"] = ["E2023"]          # old settings files still load
-    p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    s = load_settings(p)
-    assert s.win_bonus == 1.5
+    assert load_settings(p).season == "E2025"
