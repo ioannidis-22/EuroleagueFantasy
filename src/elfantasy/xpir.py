@@ -2,6 +2,7 @@
 
 raw  = expected minutes * sum over channels of (per-minute volume * PIR per unit * opponent factor)
 xPIR = alpha + beta * raw + gamma * home + delta * (last game PIR - his earlier average)
+Expected minutes, like every rate, are pulled toward his position's value.
 """
 from __future__ import annotations
 
@@ -24,6 +25,7 @@ SUM_COLS = [*VOLUME_STATS, "fgm2", "fgm3", "ftm", "fta", "minutes"]
 VOLUME_GRID = (0, 50, 100, 200, 400, 800, 1600)     # shrink strength in minutes
 EFFICIENCY_GRID = (0, 5, 10, 20, 40, 80, 160)        # shrink strength in attempts
 MINUTES_GRID = (0, .25, .5, .75, 1)                  # weight of season minutes vs last 3
+MIN_SHRINK_GRID = (0, .5, 1, 2, 4)                   # minutes shrink toward the position median, in games
 HALF_LIVES = (3, 6, 12, float("inf"))                # recency half-life in games
 
 
@@ -95,6 +97,12 @@ def channel_table(log_before: pd.DataFrame, k: dict[str, float], half_life: floa
     return _with_values(t)
 
 
+def _shrink_minutes(own: pd.Series, games: pd.Series, median: pd.Series, m: float) -> pd.Series:
+    """His expected minutes as if he had also played m games at his position's median minutes."""
+    den = games + m
+    return ((games * own + m * median) / den.where(den > 0, 1)).where(den > 0, median)
+
+
 @dataclass
 class XpirModel:
     """Every fitted xPIR number. The defaults are the unfitted model (train_rows == 0)."""
@@ -102,6 +110,7 @@ class XpirModel:
                                                          **dict.fromkeys(EFFICIENCIES, 20.0)})
     half_life: float = float("inf")
     w_season_min: float = 0.5
+    minutes_shrink: float = 1.0
     alpha: float = 0.0
     beta: float = 1.0
     gamma_home: float = 0.0
@@ -133,7 +142,7 @@ def _before(log: pd.DataFrame, poss: pd.DataFrame, round_: int) -> _Before:
 
 
 def _features(b: _Before, fixtures: pd.DataFrame, k: dict[str, float], half_life: float,
-              w_season_min: float) -> pd.DataFrame:
+              w_season_min: float, minutes_shrink: float) -> pd.DataFrame:
     fx = fixtures.drop_duplicates("player_code").set_index("player_code")
     t = channel_table(b.log, k, half_life).reindex(fx.index)
     position = fx["position"].where(fx["position"].notna(), t["position"])
@@ -148,7 +157,9 @@ def _features(b: _Before, fixtures: pd.DataFrame, k: dict[str, float], half_life
     t["position"] = position
     t["opp_tv"] = fx["opp_tv"]
     t["home"] = fx["is_home"].astype(float)
-    t["xmin"] = w_season_min * t["min_season"] + (1 - w_season_min) * t["min_last3"]
+    own = w_season_min * t["min_season"] + (1 - w_season_min) * t["min_last3"]
+    median = prior_rows(b.priors, position)["min_median"]
+    t["xmin"] = _shrink_minutes(own, t["games"], median, minutes_shrink)
     keys = pd.MultiIndex.from_arrays([t["opp_tv"], t["position"]])
     idx = b.opp.reindex(keys).set_axis(t.index) if len(b.opp) else b.opp.reindex(t.index)
     for s in OPP_STATS:
@@ -158,17 +169,19 @@ def _features(b: _Before, fixtures: pd.DataFrame, k: dict[str, float], half_life
 
 
 def features_for_round(log: pd.DataFrame, poss: pd.DataFrame, round_: int, fixtures: pd.DataFrame,
-                       k: dict[str, float], half_life: float, w_season_min: float) -> pd.DataFrame:
+                       k: dict[str, float], half_life: float, w_season_min: float,
+                       minutes_shrink: float) -> pd.DataFrame:
     """Per fixture player (index player_code): raw xPIR and its pieces, from games before round_ only.
 
     fixtures: player_code, position, opp_tv, is_home.
     """
-    return _features(_before(log, poss, round_), fixtures, k, half_life, w_season_min)
+    return _features(_before(log, poss, round_), fixtures, k, half_life, w_season_min, minutes_shrink)
 
 
 def predict_xpir(model: XpirModel, log: pd.DataFrame, poss: pd.DataFrame, round_: int,
                  fixtures: pd.DataFrame) -> pd.DataFrame:
-    f = features_for_round(log, poss, round_, fixtures, model.k, model.half_life, model.w_season_min)
+    f = features_for_round(log, poss, round_, fixtures, model.k, model.half_life, model.w_season_min,
+                           model.minutes_shrink)
     return f.assign(xpir=model.calibrate(f))
 
 
@@ -209,13 +222,23 @@ def _fit_k(rows: pd.DataFrame) -> dict[str, float]:
     return k
 
 
-def _fit_minutes_weight(befores: dict[int, _Before], targets: dict[int, pd.DataFrame]) -> float:
+def _fit_minutes(befores: dict[int, _Before], targets: dict[int, pd.DataFrame]) -> tuple[float, float]:
+    """(season minutes weight, minutes shrink), each picked by squared error on his next game's minutes."""
     zero = dict.fromkeys([*VOLUME_STATS, *EFFICIENCIES], 0.0)
-    m = pd.concat([targets[r].set_index("player_code")[["minutes"]]
-                   .join(channel_table(b.log, zero, float("inf"))[["min_season", "min_last3"]], how="inner")
-                   for r, b in befores.items()])
-    return float(min(MINUTES_GRID, key=lambda w: float(
-        ((m["minutes"] - w * m["min_season"] - (1 - w) * m["min_last3"]) ** 2).sum())))
+    parts = []
+    for r, b in befores.items():
+        d = (targets[r].set_index("player_code")[["minutes", "position"]]
+             .join(channel_table(b.log, zero, float("inf"))[["games", "min_season", "min_last3"]], how="inner"))
+        parts.append(d.assign(median=prior_rows(b.priors, d["position"])["min_median"]))
+    m = pd.concat(parts)
+
+    def own(w):
+        return w * m["min_season"] + (1 - w) * m["min_last3"]
+
+    w = float(min(MINUTES_GRID, key=lambda w: float(((m["minutes"] - own(w)) ** 2).sum())))
+    shrink = float(min(MIN_SHRINK_GRID, key=lambda s: float(
+        ((m["minutes"] - _shrink_minutes(own(w), m["games"], m["median"], s)) ** 2).sum())))
+    return w, shrink
 
 
 def _calibration(rows: pd.DataFrame) -> list[float]:
@@ -227,9 +250,9 @@ def _calibration(rows: pd.DataFrame) -> list[float]:
 def fit_xpir(log: pd.DataFrame, poss: pd.DataFrame, rounds: list[int]) -> XpirModel:
     """Fit every xPIR number on the given rounds, each predicted only from games before it.
 
-    Per-stat shrink strengths and the minutes weight are fitted first (equal game weights), then the
-    half-life is picked by the calibrated MAE. Training rows: players who played the round and had
-    played before it. With no such rows the unfitted XpirModel() is returned.
+    Per-stat shrink strengths, the minutes weight and the minutes shrink are fitted first (equal game
+    weights), then the half-life is picked by the calibrated MAE. Training rows: players who played
+    the round and had played before it. With no such rows the unfitted XpirModel() is returned.
     """
     played = played_games(log)
     targets = {int(r): g.drop_duplicates("player_code")
@@ -239,14 +262,14 @@ def fit_xpir(log: pd.DataFrame, poss: pd.DataFrame, rounds: list[int]) -> XpirMo
     if shrink.empty:
         return XpirModel()
     k = _fit_k(shrink)
-    w = _fit_minutes_weight(befores, targets)
+    w, shrink_min = _fit_minutes(befores, targets)
 
     best = None
     for hl in HALF_LIVES:
-        rows = pd.concat([_features(befores[r], _fixtures(g), k, hl, w).join(g.set_index("player_code")["pir"])
-                          for r, g in targets.items()])
+        rows = pd.concat([_features(befores[r], _fixtures(g), k, hl, w, shrink_min)
+                          .join(g.set_index("player_code")["pir"]) for r, g in targets.items()])
         rows = rows[rows["games"] > 0]
-        m = XpirModel(k, hl, w, *_calibration(rows), train_rows=len(rows))
+        m = XpirModel(k, hl, w, shrink_min, *_calibration(rows), train_rows=len(rows))
         m.mae = float((rows["pir"] - m.calibrate(rows)).abs().mean())
         m.mae_baseline = float((rows["pir"] - rows["pir_avg"]).abs().mean())
         if best is None or m.mae < best.mae:

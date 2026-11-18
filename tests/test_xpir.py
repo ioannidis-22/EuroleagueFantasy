@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
 
-from elfantasy.xpir import (EFFICIENCIES, HALF_LIVES, VOLUME_STATS, channel_table, features_for_round,
-                            fit_xpir, foul_value, player_priors, predict_xpir)
+from elfantasy.xpir import (EFFICIENCIES, HALF_LIVES, MIN_SHRINK_GRID, VOLUME_STATS, channel_table,
+                            features_for_round, fit_xpir, foul_value, player_priors, predict_xpir)
 from synth import make_log, pir_games, synth_poss, synth_season
 
 INF = float("inf")
@@ -90,11 +90,24 @@ def fixture(opp, code="g0", position="Guard", home=1):
 def test_opponent_multiplier_raises_matching_channel():
     log = fouls_league()
     poss = synth_poss(log)
-    soft = features_for_round(log, poss, 6, fixture("SOFT"), ZERO, INF, 0.5)
-    avg = features_for_round(log, poss, 6, fixture("AVG"), ZERO, INF, 0.5)
+    soft = features_for_round(log, poss, 6, fixture("SOFT"), ZERO, INF, 0.5, 1.0)
+    avg = features_for_round(log, poss, 6, fixture("AVG"), ZERO, INF, 0.5, 1.0)
     assert soft.loc["g0", "opp_fd"] > 1.0 > avg.loc["g0", "opp_fd"]
     assert soft.loc["g0", "opp_ast"] == pytest.approx(1.0)
     assert soft.loc["g0", "raw"] > avg.loc["g0", "raw"]
+
+
+def test_one_game_minutes_pulled_toward_position_median():
+    line = {"ast": 3, "fga2": 4, "fgm2": 2}
+    regulars = [{**line, "minutes": 20}] * 5
+    log = make_log({"one": {"position": "Guard", "games": [{**line, "minutes": 31}]},
+                    "g1": {"position": "Guard", "games": regulars},
+                    "g2": {"position": "Guard", "games": regulars}})       # guard median 20
+    poss = synth_poss(log)
+    unshrunk = features_for_round(log, poss, 6, fixture("BBB", code="one"), ZERO, INF, 0.5, 0.0)
+    shrunk = features_for_round(log, poss, 6, fixture("BBB", code="one"), ZERO, INF, 0.5, 1.0)
+    assert unshrunk.loc["one", "xmin"] == pytest.approx(31)
+    assert shrunk.loc["one", "xmin"] == pytest.approx((31 + 20) / 2)
 
 
 def test_no_leakage_from_target_round_or_later():
@@ -104,8 +117,8 @@ def test_no_leakage_from_target_round_or_later():
     changed.loc[later, ["ast", "fd", "minutes"]] = changed.loc[later, ["ast", "fd", "minutes"]] * 3
     changed.loc[later, "pir"] += 50
     fx = log[log["round"] == 6][["player_code", "position", "opp_tv", "is_home"]]
-    a = features_for_round(log, synth_poss(log), 6, fx, ZERO, INF, 0.5)
-    b = features_for_round(changed, synth_poss(changed), 6, fx, ZERO, INF, 0.5)
+    a = features_for_round(log, synth_poss(log), 6, fx, ZERO, INF, 0.5, 1.0)
+    b = features_for_round(changed, synth_poss(changed), 6, fx, ZERO, INF, 0.5, 1.0)
     pd.testing.assert_frame_equal(a, b)
 
 
@@ -122,6 +135,7 @@ def model(season):
 def test_fit_recovers_calibration_on_synthetic_season(model):
     assert 0.6 < model.beta < 1.4 and model.mae < model.mae_baseline
     assert set(model.k) == {*VOLUME_STATS, *EFFICIENCIES} and model.half_life in HALF_LIVES
+    assert model.minutes_shrink in MIN_SHRINK_GRID
     assert model.train_rows > 200
 
 

@@ -57,7 +57,8 @@ def _formula(r: MatchdayResult) -> None:
                  .set_index("Stat"))
         half_life = "equal weights" if np.isinf(m.half_life) else f"half-life {m.half_life:g} games"
         st.markdown(f"- Recency: {half_life}\n"
-                    f"- Expected minutes: {m.w_season_min:.2f} × season + {1 - m.w_season_min:.2f} × last 3\n"
+                    f"- Expected minutes: {m.w_season_min:.2f} × season + {1 - m.w_season_min:.2f} × last 3, "
+                    f"pulled toward the position median (worth {m.minutes_shrink:g} of his games)\n"
                     f"- Bounce-back weight: {m.delta_bounce:+.2f} PIR per PIR of last-game swing")
 
 

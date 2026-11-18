@@ -90,7 +90,9 @@ def _model_rows(model: XpirModel, rule: PriceRule, round_: int) -> list[tuple[st
             ("Price rule players", rule.n), ("Price rule R2", None if np.isnan(rule.r2) else rule.r2),
             ("xPIR alpha", model.alpha), ("xPIR beta", model.beta), ("xPIR home", model.gamma_home),
             ("xPIR bounce-back (delta)", model.delta_bounce), ("Recency half-life (games)", half_life),
-            ("Season minutes weight", model.w_season_min), ("Training rows", model.train_rows),
+            ("Season minutes weight", model.w_season_min),
+            ("Minutes shrink toward position median (games)", model.minutes_shrink),
+            ("Training rows", model.train_rows),
             ("xPIR MAE", None if np.isnan(model.mae) else model.mae),
             ("Season-average MAE", None if np.isnan(model.mae_baseline) else model.mae_baseline)]
     unit = {**dict.fromkeys(VOLUME_STATS, "minutes"), **dict.fromkeys(EFFICIENCIES, "attempts")}
