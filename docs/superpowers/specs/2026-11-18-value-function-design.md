@@ -40,22 +40,45 @@ ROI    = value / price
 label  = BUY if value ≥ +0.10 · HOLD if between · SELL if value ≤ −0.10   (thresholds configurable)
 ```
 
-**xPIR** is expected PIR next round if he plays: a linear formula whose weights are fitted on this
-season's player-games, using only what was known before each round.
+**xPIR** is expected PIR next round if he plays. It is built as **volume × efficiency** per
+scoring channel, valued with the game's exact PIR arithmetic, because stats interact. A foul drawn
+is worth `1 + (FTA per foul) × (2·FT% − 1)`. This season that ranges from 1.32 (Shorts: 0.72 FTA per
+foul, 72%) to 2.10 (Maledon: 1.31, 92%).
 
-- **Inputs, all from games before the round:**
-  - Per-game season averages of each PIR part: points, offensive and defensive rebounds, assists,
-    fouls drawn, steals, blocks, missed 2s, missed 3s, missed FTs, turnovers, blocks against,
-    fouls committed. The fitted weights on these are the "stat-line importance" table.
-  - PIR over the last 3 games and in the last game (form).
-  - Minutes: season average and last-3 average.
-  - Games played (sample size).
-  - The next opponent's Defense vs Position PIR index for his position.
-  - Home or away.
-- **Target:** his PIR in that round (rounds where he played).
-- **Fit:** ridge regression on standardised inputs, rounds 4 onward (enough history per row). The
-  output shows each input's weight in plain units.
+```
+xPIR = xMin × Σ_channels  rate_per_min(c) × value(c)
+
+channel             volume (per minute)        value per unit
+2-point attempts    2PA                        3·2P% − 1
+3-point attempts    3PA                        4·3P% − 1
+fouls drawn         FD                         1 + (FTA/FD)·(2·FT% − 1)
+off/def rebounds    OREB, DREB                 +1
+assists             AST                        +1
+steals, blocks      STL, BLK                   +1
+turnovers           TOV                        −1
+blocks against      BLKA                       −1
+fouls committed     PF                         −1
+```
+
+Free throws are reached only through fouls drawn (FTA = FD × FTA/FD), so they aren't double-counted.
+
+- **Rates and efficiencies** use only games before the round, weighted toward recent games.
+  - Each one is pulled toward its position average, with a per-stat strength **fitted from how
+    repeatable that stat is** this season. FT% settles fast; 3P%, steals and blocks swing, so they
+    stay closer to average until the sample is large. These fitted strengths are the
+    "stat-line importance" table.
+- **Expected minutes:** a weighted average of season and last-3 minutes, with weights fitted.
+- **Opponent effect per channel:** the next opponent's Defense vs Position index for that
+  component at his position, computed from games before the round, multiplies the matching volume
+  (for example, a team that fouls a lot boosts FD). Efficiencies are adjusted by the 2P%, 3P% and
+  FT%-allowed indices only if the backtest shows that helps.
+- **Home/away:** one fitted factor.
+- **Calibration:** a final fitted scale and intercept on xPIR, checked by the backtest against
+  "season average PIR".
 - **P(play):** share of his team's last 5 games he played, smoothed toward 0.9 for small samples.
+
+**Stat analysis output:** a second sheet per player and channel, showing volume, efficiency, PIR
+per unit, PIR per game and the next opponent's effect. This shows *why* a player is a BUY or SELL.
 
 ## Running it
 
@@ -63,7 +86,7 @@ season's player-games, using only what was known before each round.
 
 1. Uses the latest imported export (prices) and the downloaded games (refresh first).
 2. Fits xPIR on all completed rounds, then scores every player for the next round.
-3. Prints the top 15 BUY and SELL and writes the full table to `data/value_round_<N>.xlsx`.
+3. Prints the top 15 BUY and SELL and writes `data/value_round_<N>.xlsx` with two sheets: the value table and the per-channel stat analysis.
    - Columns: player, team, position, price, opponent, home, P(play), xPIR, break-even, value,
      ROI, label.
 
@@ -76,7 +99,7 @@ earlier rounds and predicted, then it reports:
 ## Approaches considered
 
 - **A. Hand-set weights:** simple, but the weights are guesses.
-- **B. Weights fitted on this season's games: chosen.** Still one readable weighted formula, with
+- **B. Weights fitted on this season's games: chosen,** refined after the user's free-throw example into a volume × efficiency channel model. Still one readable formula, with
   evidence behind every weight, and graded by the backtest.
 - **C. The full projection engine (Plan 2):** heavier and harder to read; overkill for one
   decision formula.
