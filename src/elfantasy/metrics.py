@@ -38,3 +38,8 @@ def game_log(conn: sqlite3.Connection, season: str) -> pd.DataFrame:
     log["won"] = (log["margin"] > 0).astype(int)
     log["pir"] = pir_box(log) if len(log) else pd.Series(dtype=float)
     return log.sort_values(["local_date", "game_code", "player_code"]).reset_index(drop=True)
+
+
+def played_games(log: pd.DataFrame) -> pd.DataFrame:
+    """Rows where the player actually played (on court, not a DNP)."""
+    return log[(log["dnp"] == 0) & (log["minutes"] > 0)]

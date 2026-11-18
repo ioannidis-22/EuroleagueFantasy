@@ -10,6 +10,10 @@ from pathlib import Path
 class Settings:
     season: str = "E2026"
     api_delay_s: float = 0.3
+    value_buy: float = 0.10       # BUY when the expected price change is at least this
+    value_sell: float = -0.10     # SELL when it is at most this
+    dip_min_avg: float = 10.0     # DIP: season PIR average at least this...
+    dip_drop: float = 0.3         # ...after a price fall of at least this last round
 
 
 def load_settings(path: Path) -> Settings:
