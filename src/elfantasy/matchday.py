@@ -1,4 +1,4 @@
-"""One matchday run: import the export, download new games, fit, score the next round, backtest."""
+"""One matchday run: import the export, download new games, fit, score the next round. Backtest on request."""
 from __future__ import annotations
 
 import sqlite3
@@ -33,9 +33,9 @@ class MatchdayResult:
     model: XpirModel
     value: pd.DataFrame
     stats: pd.DataFrame
-    backtest: pd.DataFrame
     refresh: RefreshReport
     unmatched: int
+    backtest: pd.DataFrame | None = None      # filled in when the page asks for it
 
 
 def _hits(conn, season, r, rule, model, s, log) -> dict:
@@ -128,5 +128,4 @@ def run_matchday(conn: sqlite3.Connection, export_path: Path, client, s: Setting
     poss = possessions(read_df(conn, "SELECT * FROM box_team WHERE season = ?", (s.season,)))
     model = fit_xpir(log, poss, list(range(FIRST_TRAIN_ROUND, round_)))
     value, stats = build_value_table(conn, s.season, round_, rule, model, s)
-    bt = backtest(conn, s.season, rule, s=s)
-    return MatchdayResult(md, round_, rule, model, value, stats, bt, report, len(matching.unmatched))
+    return MatchdayResult(md, round_, rule, model, value, stats, report, len(matching.unmatched))

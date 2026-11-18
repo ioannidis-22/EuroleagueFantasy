@@ -38,8 +38,9 @@ BUY/SELL hit rates also come from stored exports.
   committed) as volume × efficiency, scaled by the next opponent's Defense vs Position. It is then
   calibrated with home/away and last-game terms. The expander lists how strongly each stat is
   pulled toward its position average, along with the bounce-back weight.
-- **Backtest line.** It compares how far xPIR missed in past rounds with the season average, and
-  how often BUY and SELL calls were right.
+- **Check accuracy.** A button that runs the backtest (about 10 seconds) and shows one line: how
+  far xPIR missed in past rounds against the season average, and how often BUY and SELL calls
+  were right.
 - **Table.** Every player in the export, best value first: price, last price change, opponent and
   T-slot, P(play), xPIR, break-even, value, ROI, label and DIP. **DIP** marks a BUY with a season
   average of 10+ PIR whose price fell by 0.3 or more last round. **NO DATA** marks a player not

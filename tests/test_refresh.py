@@ -1,7 +1,10 @@
+import json
+
 import pytest
 
 from conftest import FIXTURES
 from elfantasy.el_client import ELApiError
+from elfantasy.el_parse import parse_boxscore
 from fakes import FakeClient
 from elfantasy.refresh import refresh_season
 from elfantasy.store import read_df
@@ -25,6 +28,46 @@ def test_second_refresh_fetches_only_missing(conn):
     n = c.box_calls
     r = refresh_season(conn, c, "E2026")
     assert r.new_box_scores == 1 and c.box_calls == n + 1 and r.failed == []
+
+
+def box_players(games):
+    """(club, player code) of everyone in the fixture box scores of these games."""
+    rows = set()
+    for g in games:
+        players, _ = parse_boxscore(json.loads((FIXTURES / f"box_E2026_{g}.json").read_text(encoding="utf-8")),
+                                    "E2026", g)
+        rows |= set(zip(players["club_code"], players["player_code"]))
+    return rows
+
+
+def rosters(games):
+    out = {}
+    for club, code in sorted(box_players(games)):
+        out.setdefault(club, []).append(code)
+    return out
+
+
+ROUND_10 = set(range(91, 101))
+
+
+def test_second_refresh_with_nothing_new_skips_rosters(conn):
+    c = FakeClient(FIXTURES, rosters=rosters(ROUND_10))
+    refresh_season(conn, c, "E2026")
+    assert len(c.people_calls) == 20                  # no roster stored yet: every club
+    refresh_season(conn, c, "E2026")
+    assert len(c.people_calls) == 20
+
+
+def test_box_score_with_unknown_player_fetches_his_club_roster(conn):
+    c = FakeClient(FIXTURES, fail_on={95}, rosters=rosters(ROUND_10 - {95}))
+    refresh_season(conn, c, "E2026")
+    c.fail_on, c.rosters, n = set(), rosters(ROUND_10), len(c.people_calls)
+    r = refresh_season(conn, c, "E2026")
+    new = box_players({95})
+    assert r.new_box_scores == 1
+    assert sorted(c.people_calls[n:]) == sorted({club for club, _ in new})
+    known = set(read_df(conn, "select club_code, player_code from el_players").itertuples(index=False, name=None))
+    assert new <= known
 
 
 def test_progress_callback(conn):

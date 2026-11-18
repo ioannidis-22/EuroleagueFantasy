@@ -1,4 +1,4 @@
-"""Download fixtures, rosters and new box scores for a season into SQLite."""
+"""Download fixtures, new box scores and the rosters they need for a season into SQLite."""
 from __future__ import annotations
 
 import sqlite3
@@ -32,13 +32,6 @@ def refresh_season(conn: sqlite3.Connection, client, season: str,
         return report
     upsert_many(conn, [("games", games), ("teams", teams)])
     report.games_total = len(games)
-
-    for club in sorted(set(games["home_club"]) | set(games["away_club"])):
-        try:
-            upsert_rows(conn, "el_players", parse_people(client.people(season, club), season))
-        except ELApiError as e:
-            report.failed.append((0, f"roster {club}: {e}"))
-
     have = set(read_df(conn, "SELECT DISTINCT game_code FROM box_player WHERE season = ?",
                        (season,))["game_code"])
     todo = [int(c) for c in games.loc[games["played"] == 1, "game_code"] if int(c) not in have]
@@ -58,4 +51,19 @@ def refresh_season(conn: sqlite3.Connection, client, season: str,
             report.failed.append((code, str(e)))
         if progress:
             progress(i, len(todo))
+
+    for club in _clubs_needing_rosters(conn, season, games):
+        try:
+            upsert_rows(conn, "el_players", parse_people(client.people(season, club), season))
+        except ELApiError as e:
+            report.failed.append((0, f"roster {club}: {e}"))
     return report
+
+
+def _clubs_needing_rosters(conn: sqlite3.Connection, season: str, games) -> list[str]:
+    """Every club before any roster is stored; after that, only clubs with a box-score player no roster lists."""
+    if read_df(conn, "SELECT 1 FROM el_players WHERE season = ? LIMIT 1", (season,)).empty:
+        return sorted(set(games["home_club"]) | set(games["away_club"]))
+    return list(read_df(conn, """SELECT DISTINCT club_code FROM box_player b WHERE season = ? AND NOT EXISTS
+        (SELECT 1 FROM el_players e WHERE e.season = b.season AND e.player_code = b.player_code)
+        ORDER BY club_code""", (season,))["club_code"])

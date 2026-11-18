@@ -39,10 +39,12 @@ class FakeSession:
 class FakeClient:
     """Serves real API fixtures: games for rounds 10-11 of E2026, round-10 box scores 91-100."""
 
-    def __init__(self, fixtures_dir, fail_on=()):
+    def __init__(self, fixtures_dir, fail_on=(), rosters=None):
         self.dir = fixtures_dir
         self.fail_on = set(fail_on)
+        self.rosters = rosters          # {club: [player codes]}; None serves the OLY roster for every club
         self.box_calls = 0
+        self.people_calls = []
 
     def _load(self, name):
         return json.loads((self.dir / name).read_text(encoding="utf-8"))
@@ -51,7 +53,11 @@ class FakeClient:
         return self._load("games_E2026_r10_11.json")
 
     def people(self, season, club_code):
-        return self._load("people_E2026_OLY.json")
+        self.people_calls.append(club_code)
+        if self.rosters is None:
+            return self._load("people_E2026_OLY.json")
+        return {"data": [{"typeName": "Player", "person": {"code": code, "name": code}, "club": {"code": club_code},
+                          "positionName": None} for code in self.rosters.get(club_code, [])]}
 
     def stats_v3(self, season, game_code):
         self.box_calls += 1

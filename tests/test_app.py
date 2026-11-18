@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -13,12 +14,16 @@ HOME = str(Path(__file__).resolve().parents[1] / "app" / "Home.py")
 
 
 @pytest.fixture(scope="module")
-def result(tmp_path_factory):
+def data(tmp_path_factory):
+    return tmp_path_factory.mktemp("data")
+
+
+@pytest.fixture(scope="module")
+def result(data):
     """A fixture-data run where one box score (game 95) failed to download."""
-    d = tmp_path_factory.mktemp("data")
     with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("ELFANTASY_DATA", str(d))
-        conn = connect(d / "elfantasy.db")
+        mp.setenv("ELFANTASY_DATA", str(data))
+        conn = connect(data / "elfantasy.db")
         r = run_matchday(conn, FIXTURES / "players_stats.xlsx", FakeClient(FIXTURES, fail_on=(95,)), Settings())
         conn.close()
     return r
@@ -26,7 +31,7 @@ def result(tmp_path_factory):
 
 def page_with(result):
     at = AppTest.from_file(HOME, default_timeout=60)
-    at.session_state["result"] = result
+    at.session_state["result"] = replace(result)
     return at.run()
 
 
@@ -63,4 +68,16 @@ def test_formula_card_and_messages(result):
     shown = " ".join(c.value for c in at.code)
     assert "0.042" in shown and "1.14" in shown and f"Round {result.round_}" in " ".join(h.value for h in at.subheader)
     assert any("95" in w.value for w in at.warning)                         # the failed box score
+
+
+def test_check_accuracy_runs_the_backtest_once(result, data, monkeypatch):
+    monkeypatch.setenv("ELFANTASY_DATA", str(data))
+    at = page_with(result)
+    assert not any("Backtest" in c.value for c in at.caption)
+    at.button(key="check_accuracy").click().run()
+    assert not at.exception, at.exception
     assert any("Backtest" in c.value for c in at.caption)
+    assert list(at.session_state["result"].backtest["round"]) == [10]
+    at.multiselect(key="label_filter").set_value(["BUY"]).run()            # any rerun keeps the line
+    assert any("Backtest" in c.value for c in at.caption)
+    assert not any(b.key == "check_accuracy" for b in at.button)

@@ -54,7 +54,7 @@ def test_run_matchday_on_fixtures(tmp_path, monkeypatch):
     assert r.refresh.new_box_scores == 10 and not r.refresh.failed
     assert len(r.value) == 340 and r.unmatched == (r.value.p_play.isna()).sum()
     assert r.rule == PriceRule() and isinstance(r.model, XpirModel)
-    assert list(r.backtest["round"]) == [10]
+    assert r.backtest is None                       # computed only when the page asks
     assert set(r.stats.fantasy_id) == set(r.value.loc[r.value.label != "NO DATA", "fantasy_id"])
 
 

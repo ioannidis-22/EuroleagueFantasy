@@ -6,7 +6,10 @@ import pandas as pd
 import streamlit as st
 
 from .dvp import POSITIONS
-from .matchday import MatchdayResult, value_excel_bytes
+from .matchday import MatchdayResult, backtest, value_excel_bytes
+from .paths import db_path, settings_path
+from .settings import load_settings
+from .store import connect
 from .value import CHANNELS, NO_DATA
 from .xpir import EFFICIENCIES, VOLUME_STATS
 
@@ -62,6 +65,21 @@ def _formula(r: MatchdayResult) -> None:
                     f"- Bounce-back weight: {m.delta_bounce:+.2f} PIR per PIR of last-game swing")
 
 
+def _accuracy(r: MatchdayResult) -> None:
+    """The backtest line, computed on the first click and kept on the result for later reruns."""
+    if r.backtest is None:
+        if not st.button("Check accuracy", key="check_accuracy"):
+            return
+        s = load_settings(settings_path())
+        conn = connect(db_path())
+        try:
+            with st.spinner("Refitting xPIR on each past round."):
+                r.backtest = backtest(conn, s.season, r.rule, s=s)
+        finally:
+            conn.close()
+    _backtest_line(r.backtest)
+
+
 def _backtest_line(bt: pd.DataFrame) -> None:
     bt = bt.dropna(subset=["mae_xpir"])
     if bt.empty:
@@ -109,7 +127,7 @@ def render_result(r: MatchdayResult) -> None:
     if r.unmatched:
         st.caption(f"{r.unmatched} export players aren't linked to Euroleague data. They show as NO DATA.")
     _formula(r)
-    _backtest_line(r.backtest)
+    _accuracy(r)
     _table(r.value)
     st.download_button("Download Excel", value_excel_bytes(r.value, r.stats, r.model, r.rule, r.round_),
                        file_name=f"value_round_{r.round_}.xlsx",
