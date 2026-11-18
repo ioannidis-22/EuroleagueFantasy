@@ -1,6 +1,6 @@
 import pandas as pd
 
-from elfantasy.slots import assign_slots, next_round, team_slots
+from elfantasy.slots import assign_slots, next_round, next_unstarted_round, team_slots
 
 
 def games_df(round_, dates):
@@ -63,3 +63,13 @@ def test_next_round_postponed_in_latest_played_round(conn):
 def test_next_round_mid_round_stays(conn):
     seed_games(conn, [(11, "2026-11-11", 1), (11, "2026-11-12", 0), (12, "2026-11-17", 0)])
     assert next_round(conn, "E2026", today="2026-11-12") == 11
+
+
+def test_default_round_is_next_unstarted(conn):
+    seed_games(conn, [(12, "2026-11-17", 1), (12, "2026-11-19", 0), (13, "2026-11-24", 0)])
+    assert next_unstarted_round(conn, "E2026") == 13
+
+
+def test_next_unstarted_round_when_next_round_has_not_started(conn):
+    seed_games(conn, [(11, "2099-11-12", 1), (12, "2099-11-17", 0), (13, "2099-11-24", 0)])
+    assert next_unstarted_round(conn, "E2026") == 12

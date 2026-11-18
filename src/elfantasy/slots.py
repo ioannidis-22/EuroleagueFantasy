@@ -35,6 +35,16 @@ def next_round(conn: sqlite3.Connection, season: str, today: str | None = None) 
     return int((upcoming if len(upcoming) else cand)["round"].min())
 
 
+def next_unstarted_round(conn: sqlite3.Connection, season: str) -> int | None:
+    """The first round at or after next_round with no game played yet (the one to pick a team for)."""
+    start = next_round(conn, season)
+    if start is None:
+        return None
+    g = read_df(conn, """SELECT round FROM games WHERE season = ? AND round >= ?
+                         GROUP BY round HAVING MAX(played) = 0 ORDER BY round LIMIT 1""", (season, start))
+    return int(g["round"].iloc[0]) if len(g) else None
+
+
 def team_slots(conn: sqlite3.Connection, season: str, round_: int) -> pd.DataFrame:
     g = read_df(conn, """SELECT g.season, g.game_code, g.round, g.local_date,
                                 h.tv_code AS home_tv, a.tv_code AS away_tv

@@ -91,3 +91,42 @@ def synth_season(rounds: int, players: int, seed: int) -> pd.DataFrame:
 
 def synth_poss(log: pd.DataFrame) -> pd.DataFrame:
     return log[["season", "game_code"]].drop_duplicates().assign(poss=70.0)
+
+
+def seed_season_db(conn, log: pd.DataFrame, snapshot_rounds: list[int]) -> None:
+    """Write a synth_season log into the DB as games, box scores and fantasy exports.
+
+    Every player is matched (fantasy id "F" + code) and priced 4-13 credits in each export.
+    """
+    from elfantasy.store import upsert_rows
+
+    log = log.copy()
+    teams = sorted(set(log["team_tv"]))
+    home = log[log["is_home"] == 1][["round", "team_tv", "opp_tv"]].drop_duplicates()
+    home["game_code"] = home["round"] * 100 + home["team_tv"].map(teams.index)
+    code = {**{(r, h): g for r, h, g in home[["round", "team_tv", "game_code"]].itertuples(index=False)},
+            **{(r, a): g for r, a, g in home[["round", "opp_tv", "game_code"]].itertuples(index=False)}}
+    log["game_code"] = [code[(r, t)] for r, t in zip(log["round"], log["team_tv"])]
+    pts = log.groupby(["game_code", "team_tv"])["pts"].sum()
+    upsert_rows(conn, "teams", pd.DataFrame({"club_code": teams, "tv_code": teams, "name": teams}))
+    upsert_rows(conn, "games", pd.DataFrame({
+        "season": "E2026", "game_code": home["game_code"], "round": home["round"], "phase": "RS",
+        "local_date": home["round"].map(_date), "home_club": home["team_tv"], "away_club": home["opp_tv"],
+        "home_score": [pts.get((g, t), 0) for g, t in zip(home["game_code"], home["team_tv"])],
+        "away_score": [pts.get((g, t), 0) for g, t in zip(home["game_code"], home["opp_tv"])],
+        "played": 1}))
+    box = log.assign(club_code=log["team_tv"], pir_official=log["pir"])
+    upsert_rows(conn, "box_player", box[["season", "game_code", "player_code", "club_code", "is_starter",
+                                         "minutes", "dnp", *BOX_COMPONENTS, "pir_official"]])
+    upsert_rows(conn, "box_team", box.groupby(["season", "game_code", "club_code"], as_index=False)
+                [BOX_COMPONENTS].sum())
+    players = log.drop_duplicates("player_code")[["player_code", "position", "team_tv"]].reset_index(drop=True)
+    upsert_rows(conn, "player_map", pd.DataFrame({"fantasy_id": "F" + players["player_code"],
+                                                  "player_code": players["player_code"], "method": "name"}))
+    for md in snapshot_rounds:
+        upsert_rows(conn, "fantasy_players", pd.DataFrame({
+            "matchday": md, "fantasy_id": "F" + players["player_code"], "name": "N",
+            "surname": players["player_code"], "position": players["position"], "team": players["team_tv"],
+            "price": 4.0 + players.index % 10}))
+    upsert_rows(conn, "snapshots", pd.DataFrame({"matchday": snapshot_rounds, "reference_matchdays": "[]",
+                                                 "imported_at": "x", "file_hash": "h"}))
