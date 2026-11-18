@@ -15,6 +15,59 @@ The CLI gets a `value` subcommand. No app pages.
 
 **Spec:** `docs/superpowers/specs/2026-11-18-value-function-design.md`
 
+## Amendment (2026-11-18, operator decision): one-page app, no CLI
+
+The operator scrapped the six-page app. The product is one page: upload the matchday export, see
+the formula, the Top 25 BUY and the Top 25 SELL. The amendment overrides the tasks below where they
+conflict.
+
+- **Task 0 (new, runs first). Delete the old app.**
+  - Remove `app/pages/` (all five pages), `src/elfantasy/ui_data.py`, `src/elfantasy/views.py`,
+    `tests/test_views.py` and `tests/test_app_smoke.py`.
+  - Replace `app/Home.py` with a one-line placeholder page.
+  - Remove anything that only those files used.
+  - The full suite must stay green.
+- **Task 5 (replaced). Pipeline in `src/elfantasy/matchday.py`, no `value` CLI command.**
+  - Keep the Task 5 interfaces `next_unstarted_round` and `backtest`.
+  - `write_value_excel` becomes `value_excel_bytes(value_df, stat_df, model, rule, round_) -> bytes`
+    (sheets `Value`, `Stat analysis`, `Model`).
+  - Add:
+    ```python
+    @dataclass
+    class MatchdayResult:
+        matchday: int; round_: int
+        rule: PriceRule; model: XpirModel
+        value: pd.DataFrame; stats: pd.DataFrame; backtest: pd.DataFrame
+        refresh: RefreshReport; unmatched: int
+    def run_matchday(conn, export_path: Path, client, s: Settings) -> MatchdayResult
+    ```
+  - `run_matchday` steps, in this order:
+    1. `import_export`
+    2. `refresh_season(conn, client, s.season, source="live")`
+    3. `match_players`
+    4. `fit_price_rule`
+    5. `fit_xpir` on rounds 4 up to the last completed round
+    6. `build_value_table` for `next_unstarted_round`
+    7. `backtest`
+  - Errors from import (`ExportFormatError`) propagate. Refresh failures stay in the report.
+  - Tests use `FakeClient` fixtures, plus one test that a bad export raises before any refresh call.
+- **Task 6 (new). `app/Home.py`, the only page.**
+  - Title "Euroleague fantasy value picks", an xlsx uploader and a Run button. On run, call
+    `run_matchday` under a spinner and keep the result in `st.session_state`.
+  - Show `ExportFormatError` and refresh failures as plain messages.
+  - **Formula card:** the value formula with the fitted k, a, c, d and the rule source; the xPIR
+    calibration line; the next round number. An expander holds the stat-line importance table
+    (fitted shrink strength per stat) and the bounce-back weight.
+  - **Two tables side by side:** Top 25 BUY (label BUY, value descending) and Top 25 SELL (label
+    SELL, value ascending). Columns: player, team, position, price, opponent with T-slot, xPIR,
+    break-even, value, ROI, DIP.
+  - One download button for the Excel file.
+  - One backtest line: xPIR error vs baseline, and BUY/SELL hit rate where prices were known.
+  - Test: an AppTest smoke run of the page with no upload.
+  - Test: render the result section from a fixture `MatchdayResult` through a
+    `render_result(result)` function in `src/elfantasy/hud.py`, which the page imports.
+- **README:** rewrite for the one-page flow (setup, run, upload each matchday).
+
 ## Global Constraints
 
 - Current season only (`Settings.season`, today `"E2026"`).
